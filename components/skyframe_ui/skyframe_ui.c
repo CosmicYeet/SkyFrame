@@ -971,7 +971,7 @@ void skyframe_ui_set_aircraft(const skyframe_aircraft_t *aircraft, uint8_t count
 #define SWEEP_MS_PER_TURN 5000U
 #define SWEEP_FRAMES_PER_TURN 324U   /* ~5 s at the panel's ~64.7 Hz */
 #define SWEEP_FRAMES_PER_STEP 2U
-#define SWEEP_PERIOD_MS 5            /* polls the frame clock; notices a refresh within 5 ms */
+#define SWEEP_PERIOD_MS 1            /* polls the frame clock on every UI loop pass (woken at each refresh) */
 #define SWEEP_WIDTH 2
 #define SWEEP_SEGS 6                 /* radial bands, each invalidated as its own box */
 #define TRAIL_DEG 30.f               /* afterglow behind the beam, fading out */

@@ -103,6 +103,8 @@ esp_err_t ST7701S_reset(void);// LCD Reset
 void LCD_Init(void);
 /* Panel refreshes since boot (~65 Hz): paces the radar sweep to real frames. */
 uint32_t LCD_Vsync_Count(void);
+/* Notify this task (xTaskNotifyGive) at every panel refresh. */
+void LCD_Set_Vsync_Task(TaskHandle_t task);
 
 /********************* BackLight *********************/
 void Backlight_Init(void);

@@ -13,6 +13,7 @@
 static const char *TAG="skyframe_jpeg";
 static const uint8_t scale_div[]={1,2,4,8};
 
+#define JPEG_WORK_BYTES 16384
 esp_err_t sf_jpeg_decode_fit(const uint8_t *data,size_t len,uint16_t **out_frame,
                              unsigned out_w,unsigned out_h,const char *name){
  if(!data||!len||!out_frame||!out_w||!out_h)return ESP_ERR_INVALID_ARG;
@@ -34,7 +35,13 @@ esp_err_t sf_jpeg_decode_fit(const uint8_t *data,size_t len,uint16_t **out_frame
  }
  if(!decoded)return ESP_ERR_NO_MEM;
  cfg.out_scale=(esp_jpeg_image_scale_t)s;cfg.outbuf=(uint8_t *)decoded;cfg.outbuf_size=bytes;
+ /* The decoder's tables and stream buffer: its default 3100 bytes (from internal RAM) is too
+    small for some photos from the web (JDR_MEM1); a roomy one in PSRAM stays in the cache. */
+ void *work=heap_caps_malloc(JPEG_WORK_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+ if(!work){free(decoded);return ESP_ERR_NO_MEM;}
+ cfg.advanced.working_buffer=work;cfg.advanced.working_buffer_size=JPEG_WORK_BYTES;
  e=esp_jpeg_decode(&cfg,&info);
+ free(work);
  if(e!=ESP_OK){free(decoded);return e;}
  ESP_LOGI(TAG,"%s: %ux%u decoded at 1/%u -> %ux%u",name?name:"image",(unsigned)full_w,(unsigned)full_h,
           (unsigned)scale_div[s],(unsigned)info.width,(unsigned)info.height);

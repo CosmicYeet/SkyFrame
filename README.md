@@ -26,7 +26,7 @@
 <td width="50%" valign="top">
 
 ### 🛩️ Live radar
-Planes within your chosen radius (10 miles by default) at their true bearing and distance, gliding between updates under an animated sweep with an afterglow. Each icon shows **what the aircraft is** (13 shapes, from Cessnas and helicopters to business jets, fighters and four-engine jumbos), **sized by the aircraft** in 10% steps from light planes to the 747 and A380. Emergencies, VIP flights, military and notable airframes are color-coded. Airborne planes always come first; parked and taxiing ones are small dim dots, with a count next to the BWI marker.
+Planes within your chosen radius (10 miles by default) at their true bearing and distance, gliding between updates under an animated sweep with an afterglow, drawn at about 30 frames a second. Each icon shows **what the aircraft is** (13 shapes, from Cessnas and helicopters to business jets, fighters and four-engine jumbos), **sized by the aircraft** in 10% steps from light planes to the 747 and A380. Emergencies, VIP flights, military and notable airframes are color-coded. Airborne planes always come first; parked and taxiing ones are small dim dots, with a count next to the BWI marker.
 
 </td>
 <td width="50%" valign="top">
@@ -40,7 +40,7 @@ A details page with a **photo of that exact airplane** (it fades in over a typic
 <td valign="top">
 
 ### ⛅ Weather
-Temperature and conditions with drawn icons, feels-like, today's low/high bar, humidity, wind, chance of rain, the next sunrise or sunset, a four-hour forecast and a large clock. **Severe-weather alerts** from the National Weather Service appear as a colored card (warning, watch, advisory); tap it for the full text.
+Temperature and conditions with drawn icons, feels-like, today's low/high bar, humidity, wind, chance of rain, the next sunrise or sunset, a four-hour forecast and a large clock. **Severe-weather alerts** from the National Weather Service appear as a colored card (warning, watch, advisory); tap it for the full text, or swipe it aside to hide it for 5 minutes (a new or more severe alert shows at once).
 
 </td>
 <td valign="top">
@@ -122,6 +122,7 @@ The first build downloads LVGL, esp_jpeg, cJSON, mDNS and TinyUSB through the co
 | Swipe down from the top | Any screen | The [pull-down panel](#pull-down-panel) |
 | Tap a plane | Radar | Opens its details page; tap again to close, scroll for the record |
 | Tap an alert | Weather | The full National Weather Service text |
+| Swipe an alert sideways | Weather | Hides it for 5 minutes |
 | Swipe left or right | Photos | Next photo, with a page turn |
 | Long press | Any screen | Skips to the next screen, which then runs its usual time |
 | Hold **5 s** | Any screen | Settings screen with QR codes for the web pages |
@@ -216,13 +217,15 @@ Hold any screen for 5 s to open settings, then hold the settings screen's backgr
 | USB transfer / Wi-Fi problem | Those screens | 10–15 s |
 | Today's sky | A sample day, with a 747-8F as the rarest aircraft | 20 s |
 | Startup | The startup screen, as at power-on | 7 s |
-| Weather alert | A sample Severe Thunderstorm Warning and Flood Watch; tap the card | 45 s |
+| Weather alert | A sample Severe Thunderstorm Warning and Flood Watch; tap or swipe the card | 45 s |
 | Sighting alert | An Air Force One banner over the weather; tap it for the radar | 25 s |
 | Overhead now | A sample "Overhead now" card | 12 s |
-| Check for updates | Checks for a newer version now and installs it (progress under **System**) | |
+| Check for updates | Checks for a newer version now and installs it; the button shows the result or the progress | |
 | Restart | Restarts SkyFrame | |
 
 The **System** panel shows CPU load per core, free memory, chip temperature, battery voltage, microSD space, Wi-Fi signal and channel, IP address, uptime, start count, the reason for the last restart, the last saved crash, and the update status. Tap the yellow **TEST** banner to stop a test early. Nothing in test mode is saved.
+
+The serial log adds a line every 30 s with CPU load, free memory and frame timing (frames per second, drawing time per frame), and every 5 minutes the stack each task has left: useful for comparing builds on the device.
 
 </details>
 

@@ -19,6 +19,19 @@ void example_increase_lvgl_tick(void *arg);
 /*Read the touchpad*/
 void example_touchpad_read( lv_indev_drv_t * drv, lv_indev_data_t * data );
 
+/* Frame timing, for the serial log: a frame's UI work (timers, animations, drawing; from
+   lvgl_render_begin, called before lv_timer_handler, to its last area handed to the panel)
+   and, separately, the wait for the panel's refresh. Read and reset by lvgl_frame_stats_take. */
+typedef struct {
+    uint32_t frames;          /* frames sent to the panel */
+    uint32_t measured;        /* of which timed */
+    uint64_t work_us;         /* their UI work in all */
+    uint32_t work_max_us;
+    uint64_t wait_us;         /* waiting for the panel's refresh */
+} lvgl_frame_stats_t;
+void lvgl_render_begin(void);
+void lvgl_frame_stats_take(lvgl_frame_stats_t *out);
+
 void LVGL_Init(void);
 /* The panel's frame buffer (480x480 RGB565): exactly what is on the glass. */
 const void *LCD_Frame_Buffer(void);

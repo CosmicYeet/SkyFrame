@@ -14,6 +14,12 @@ static void *buf2 = NULL;
 #endif
 
 
+/* Frame timing (UI thread only): see lvgl_frame_stats_t. */
+static lvgl_frame_stats_t frame_stats;
+static int64_t frame_t0, frame_wait;   /* frame_t0 = 0: this frame's start isn't known */
+void lvgl_render_begin(void) { frame_t0 = esp_timer_get_time(); frame_wait = 0; }
+void lvgl_frame_stats_take(lvgl_frame_stats_t *out) { *out = frame_stats; memset(&frame_stats, 0, sizeof(frame_stats)); }
+
 void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
 {
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t) drv->user_data;
@@ -26,8 +32,12 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
        small areas; waiting before each one cost a whole panel refresh per area. */
     static bool in_frame;
     if (!in_frame) {
+        int64_t w0 = esp_timer_get_time();
         xSemaphoreGive(sem_gui_ready);
         xSemaphoreTake(sem_vsync_end, portMAX_DELAY);
+        int64_t w = esp_timer_get_time() - w0;
+        frame_wait += w;
+        frame_stats.wait_us += (uint64_t)w;
         in_frame = true;
     }
 #endif
@@ -36,6 +46,19 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
 #if CONFIG_EXAMPLE_AVOID_TEAR_EFFECT_WITH_SEM
     if (lv_disp_flush_is_last(drv)) in_frame = false;
 #endif
+    if (lv_disp_flush_is_last(drv)) {
+        int64_t now = esp_timer_get_time();
+        frame_stats.frames++;
+        if (frame_t0) {
+            int64_t work = now - frame_t0 - frame_wait;
+            if (work < 0) work = 0;
+            frame_stats.measured++;
+            frame_stats.work_us += (uint64_t)work;
+            if (work > frame_stats.work_max_us) frame_stats.work_max_us = (uint32_t)work;
+        }
+        frame_t0 = now;   /* another frame in the same pass starts here */
+        frame_wait = 0;
+    }
     lv_disp_flush_ready(drv);
 }
 

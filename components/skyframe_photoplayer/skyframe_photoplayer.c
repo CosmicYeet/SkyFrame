@@ -139,7 +139,7 @@ esp_err_t sf_photoplayer_start(void){
  catalog=heap_caps_calloc(1,sizeof(*catalog),MALLOC_CAP_SPIRAM);
  if(!catalog)return ESP_ERR_NO_MEM;
  next_slot=0;
- if(xTaskCreatePinnedToCore(decode_worker,"skyframe_photo",6144,NULL,2,&worker,1)!=pdPASS){
+ if(xTaskCreatePinnedToCore(decode_worker,"skyframe_photo",5120,NULL,2,&worker,1)!=pdPASS){
   worker=NULL;free(catalog);catalog=NULL;return ESP_ERR_NO_MEM;
  }
  sf_photo_set_provider(next_picture,NULL);

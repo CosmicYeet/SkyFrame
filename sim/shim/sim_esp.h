@@ -158,7 +158,9 @@ BaseType_t xTaskNotifyGive(TaskHandle_t t);
 uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t wait);
 BaseType_t xTaskNotifyWait(uint32_t clear_entry, uint32_t clear_exit, uint32_t *value, TickType_t wait);
 typedef enum { eRunning, eReady, eBlocked, eSuspended, eDeleted, eInvalid } eTaskState;
-typedef struct { uint32_t ulRunTimeCounter; } TaskStatus_t;
+typedef struct { uint32_t ulRunTimeCounter; const char *pcTaskName; unsigned usStackHighWaterMark; } TaskStatus_t;
+/* The task list (stack report): the simulator has none to show. */
+static inline UBaseType_t uxTaskGetSystemState(TaskStatus_t *t, UBaseType_t n, uint32_t *total) { (void)t; (void)n; (void)total; return 0; }
 void vTaskGetInfo(TaskHandle_t t, TaskStatus_t *s, BaseType_t stack, eTaskState state);
 TaskHandle_t xTaskGetIdleTaskHandleForCore(BaseType_t core);
 

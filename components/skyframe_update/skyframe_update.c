@@ -50,6 +50,7 @@ static void set_status(sf_update_state_t state, int percent, const char *fmt, ..
     status.percent = percent;
     memcpy(status.text, text, sizeof(status.text));
     taskEXIT_CRITICAL(&lock);
+    if (state != SF_UPDATE_DOWNLOADING && state != SF_UPDATE_CHECKING) ESP_LOGI(TAG, "%s", text);
 }
 void sf_update_status(sf_update_status_t *out)
 {

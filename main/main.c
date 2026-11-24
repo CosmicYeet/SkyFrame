@@ -622,6 +622,27 @@ static void log_resources(uint32_t t) {
              (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)/1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)/1024),chip_celsius(),
              (unsigned)active_screen<SF_SCREEN_COUNT?names[active_screen]:"?");
+    /* Frames: how long the UI thread works on one (the radar's sweep is most of it) and how
+       long it waits for the panel. Compare builds on the same screen. */
+    lvgl_frame_stats_t f;
+    lvgl_frame_stats_take(&f);
+    if(f.measured)
+        ESP_LOGI(TAG,"Frames %.1f/s  work avg %.1f ms, max %.1f ms  vsync wait avg %.1f ms",f.frames/30.f,
+                 f.work_us/1000.f/f.measured,f.work_max_us/1000.f,f.wait_us/1000.f/(f.frames?f.frames:1));
+    /* Every 5 minutes: the least free stack each task has had (for sizing them). */
+    static int stack_turn;
+    if(++stack_turn>=10) {
+        stack_turn=0;
+        TaskStatus_t *ts=heap_caps_malloc(40*sizeof(TaskStatus_t),MALLOC_CAP_SPIRAM);
+        if(ts) {
+            UBaseType_t n=uxTaskGetSystemState(ts,40,NULL);
+            char line[480]; size_t len=0;
+            for(UBaseType_t i=0;i<n&&len<sizeof(line)-40;i++)
+                len+=snprintf(line+len,sizeof(line)-len,"%s%s %u",len?", ":"",ts[i].pcTaskName,(unsigned)ts[i].usStackHighWaterMark);
+            ESP_LOGI(TAG,"Stack never used (bytes): %s",line);
+            free(ts);
+        }
+    }
 }
 /* "SkyFrame v0.5.0  *  Nov 23 2026" and "Nov 23 2026 14:02:11". The version comes from
    version.txt (the app description); __DATE__ pads single-digit days with a space, squeezed out
@@ -664,8 +685,8 @@ static void system_stats(uint32_t t, sf_system_stats_t *s) {
     build_name(s->version,sizeof(s->version),s->built,sizeof(s->built));
     sf_update_status_t us;
     sf_update_status(&us);
-    if(sf_update_pending_verify()) snprintf(s->update,sizeof(s->update),"v%s: new, settling in",sf_update_version());
-    else if(us.text[0]) snprintf(s->update,sizeof(s->update),"%s",us.text);
+    if(us.state!=SF_UPDATE_IDLE && us.text[0]) snprintf(s->update,sizeof(s->update),"%s",us.text);
+    else if(sf_update_pending_verify()) snprintf(s->update,sizeof(s->update),"v%s: new, settling in",sf_update_version());
     else snprintf(s->update,sizeof(s->update),"Checked nightly at %d AM",UPDATE_HOUR);
     snprintf(s->crash,sizeof(s->crash),"%s",crash_text);
 }
@@ -717,7 +738,7 @@ static bool test_tick(uint32_t t, sf_screen_t *forced) {
     case SF_TEST_USB:   sf_test_badge("TEST  \xE2\x80\xA2  USB screen"); return false;
     case SF_TEST_WIFI:  sf_test_badge("TEST  \xE2\x80\xA2  Wi-Fi screen"); return false;
     case SF_TEST_WX_ALERT:
-        sf_test_badge("TEST  \xE2\x80\xA2  tap the alert");
+        sf_test_badge("TEST  \xE2\x80\xA2  tap or swipe the alert");
         *forced=SF_SCREEN_WEATHER; return true;
     case SF_TEST_SIGHTING:   /* over another screen, as it would be */
         sf_test_badge("TEST  \xE2\x80\xA2  sighting alert");
@@ -1439,6 +1460,13 @@ static void sighting_tapped(void) {
     sf_schedule_jump(&ctrl.scheduler,SF_SCREEN_RADAR,now_ms());
 }
 
+/* The RGB panel's interrupts (the bounce-buffer copy, ~30 MB/s, and vsync) run on the core
+   that installs the panel. Core 0 draws the radar; core 1 is mostly idle: install it there. */
+static void lcd_init_task(void *arg) {
+    LCD_Init();
+    xTaskNotifyGive((TaskHandle_t)arg);
+    vTaskDelete(NULL);
+}
 void app_main(void) {
     /* NVS is initialized before Wi-Fi; no personal details built into firmware. */
     ESP_ERROR_CHECK(sf_config_nvs_init());
@@ -1450,7 +1478,8 @@ void app_main(void) {
     /* Preserve Waveshare's original order to honor shared LCD/SD lines. */
     I2C_Init();
     EXIO_Init();
-    LCD_Init();
+    xTaskCreatePinnedToCore(lcd_init_task,"lcd_init",6144,xTaskGetCurrentTaskHandle(),5,NULL,1);
+    ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
     Touch_Init();
     SD_Init();
     /* Mounts the card for SkyFrame and enables USB file transfer on the native port. */
@@ -1500,15 +1529,16 @@ void app_main(void) {
     if(!mailbox||!info_requests||!msg)ESP_LOGE(TAG,"Insufficient memory for network queues");
     else {
         /* HTTPS handshakes are seconds of CPU; keep them on CPU1, away from LVGL and Wi-Fi on CPU0. */
-        xTaskCreatePinnedToCore(network_task,"skyframe_net",12288,NULL,4,NULL,1);
+        xTaskCreatePinnedToCore(network_task,"skyframe_net",10240,NULL,4,NULL,1);   /* ~4.7 KB used */
         xTaskCreatePinnedToCore(info_task,"skyframe_info",10240,NULL,3,NULL,1);
-        xTaskCreatePinnedToCore(today_photo_worker,"today_photo",6144,NULL,2,&today_photo_task,1);
+        xTaskCreatePinnedToCore(today_photo_worker,"today_photo",5120,NULL,2,&today_photo_task,1);   /* ~2.2 KB used */
     }
 
     ESP_LOGI(TAG,"SkyFrame v%s booted: radar=%u mi, trigger=%u mi",sf_update_version(),cfg.display_miles,cfg.activation_miles);
     last_motion_ms=now_ms();
     /* Unattended recovery: if this loop ever stalls, the task watchdog restarts the device. */
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+    LCD_Set_Vsync_Task(xTaskGetCurrentTaskHandle());   /* the loop below wakes at each refresh */
     while(1) {
         esp_task_wdt_reset();
         if(msg && mailbox) {
@@ -1582,7 +1612,9 @@ void app_main(void) {
                          test_is(SF_TEST_SIGHTING)||test_is(SF_TEST_OVERHEAD));
         log_resources(t);
         take_birthdays();
+        lvgl_render_begin();
         lv_timer_handler();
-        vTaskDelay(pdMS_TO_TICKS(GUI_TICK_MS));
+        /* Until the panel's next refresh (the sweep steps on it), or GUI_TICK_MS at most. */
+        ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(GUI_TICK_MS));
     }
 }

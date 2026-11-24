@@ -407,11 +407,14 @@ SemaphoreHandle_t sem_gui_ready;
 
 volatile uint32_t lcd_vsync_count;   /* panel refreshes since boot (~65 Hz) */
 uint32_t LCD_Vsync_Count(void) { return lcd_vsync_count; }
+static TaskHandle_t vsync_task;      /* woken at every refresh (the UI loop) */
+void LCD_Set_Vsync_Task(TaskHandle_t task) { vsync_task = task; }
 
 static bool IRAM_ATTR example_on_vsync_event(esp_lcd_panel_handle_t panel, const esp_lcd_rgb_panel_event_data_t *event_data, void *user_data)
 {
     BaseType_t high_task_awoken = pdFALSE;
     lcd_vsync_count++;
+    if (vsync_task) vTaskNotifyGiveFromISR(vsync_task, &high_task_awoken);
 #if CONFIG_EXAMPLE_AVOID_TEAR_EFFECT_WITH_SEM
     if (xSemaphoreTakeFromISR(sem_gui_ready, &high_task_awoken) == pdTRUE) {
         xSemaphoreGiveFromISR(sem_vsync_end, &high_task_awoken);

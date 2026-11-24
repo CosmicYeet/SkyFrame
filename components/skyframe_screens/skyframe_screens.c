@@ -1,3 +1,4 @@
+#include "skyframe_lvmem.h"
 #include "skyframe_screens.h"
 #include "esp_heap_caps.h"
 #include <ctype.h>
@@ -643,14 +644,99 @@ static void alert_open(lv_event_t *e){
     alert_pulse_run();   /* covered by the page: stop */
 }
 static void alert_close(lv_event_t *e){(void)e;sf_weather_close_alert();}
+
+/* Swiping the card sideways hides it for a while (the chips come back). A different alert,
+   or a more severe one, shows at once. */
+#define ALERT_CARD_X 70
+#define ALERT_SWIPE_PX 90                /* let go this far out: hidden */
+#define SF_ALERT_HIDE_MS (5U*60U*1000U)  /* a swiped-away alert comes back after 5 minutes */
+static bool alert_dismissed;             /* hidden by a swipe (alert_hide_timer brings it back) */
+static char alert_dismissed_event[64];
+static uint8_t alert_dismissed_level;
+static lv_timer_t *alert_hide_timer;
+static lv_coord_t alert_press_x, alert_press_y;
+static bool alert_dragging, alert_swallow_click;
+static void alert_chips(bool show){
+    for(int i=0;i<CHIP_COUNT;i++){
+        if(show)lv_obj_clear_flag(lv_obj_get_parent(chip_value[i]),LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(lv_obj_get_parent(chip_value[i]),LV_OBJ_FLAG_HIDDEN);
+    }
+}
+static void alert_card_x(void *obj,int32_t x){
+    lv_obj_set_x((lv_obj_t*)obj,(lv_coord_t)x);
+    int32_t d=LV_ABS(x-ALERT_CARD_X);
+    lv_obj_set_style_opa((lv_obj_t*)obj,(lv_opa_t)(d>=300?LV_OPA_TRANSP:LV_OPA_COVER-d*LV_OPA_COVER/300),0);
+}
+static void alert_unhide(lv_timer_t *t){
+    (void)t;alert_hide_timer=NULL;
+    if(!alert_dismissed)return;
+    alert_dismissed=false;
+    if(!alert_card)return;
+    if(lv_label_get_text(alert_event)[0]){   /* still an alert to show */
+        alert_card_x(alert_card,ALERT_CARD_X);
+        lv_obj_clear_flag(alert_card,LV_OBJ_FLAG_HIDDEN);
+        alert_chips(false);
+        alert_pulse_run();
+    }
+}
+static void alert_slid_out(lv_anim_t *a){
+    (void)a;
+    lv_obj_add_flag(alert_card,LV_OBJ_FLAG_HIDDEN);
+    alert_card_x(alert_card,ALERT_CARD_X);
+    alert_chips(true);
+    alert_pulse_run();
+}
+static void alert_slide(int32_t to,bool out){
+    lv_anim_t a;lv_anim_init(&a);
+    lv_anim_set_var(&a,alert_card);lv_anim_set_exec_cb(&a,alert_card_x);
+    lv_anim_set_values(&a,lv_obj_get_x(alert_card),to);
+    lv_anim_set_time(&a,out?220:180);
+    lv_anim_set_path_cb(&a,out?lv_anim_path_ease_in:lv_anim_path_ease_out);
+    if(out)lv_anim_set_ready_cb(&a,alert_slid_out);
+    lv_anim_start(&a);
+}
+static void alert_drag(lv_event_t *e){
+    lv_event_code_t code=lv_event_get_code(e);
+    lv_indev_t *in=lv_indev_get_act();
+    if(!in)return;
+    lv_point_t p;lv_indev_get_point(in,&p);
+    if(code==LV_EVENT_PRESSED){
+        alert_press_x=p.x;alert_press_y=p.y;alert_dragging=false;alert_swallow_click=false;
+        lv_anim_del(alert_card,alert_card_x);
+    }else if(code==LV_EVENT_PRESSING){
+        lv_coord_t dx=p.x-alert_press_x, dy=p.y-alert_press_y;
+        if(!alert_dragging&&LV_ABS(dx)>10&&LV_ABS(dx)>LV_ABS(dy))alert_dragging=alert_swallow_click=true;
+        if(alert_dragging)alert_card_x(alert_card,ALERT_CARD_X+dx);
+    }else if(code==LV_EVENT_RELEASED||code==LV_EVENT_PRESS_LOST){
+        if(!alert_dragging)return;
+        alert_dragging=false;
+        lv_coord_t dx=lv_obj_get_x(alert_card)-ALERT_CARD_X;
+        if(LV_ABS(dx)<ALERT_SWIPE_PX){alert_slide(ALERT_CARD_X,false);return;}
+        /* hidden: remember which alert, come back after a while */
+        alert_dismissed=true;
+        snprintf(alert_dismissed_event,sizeof(alert_dismissed_event),"%s",lv_label_get_text(alert_event));
+        if(alert_hide_timer)lv_timer_del(alert_hide_timer);
+        alert_hide_timer=lv_timer_create(alert_unhide,SF_ALERT_HIDE_MS,NULL);
+        lv_timer_set_repeat_count(alert_hide_timer,1);
+        alert_slide(dx>0?ALERT_CARD_X+420:ALERT_CARD_X-420,true);
+    }
+}
+static void alert_clicked(lv_event_t *e){
+    if(alert_swallow_click){alert_swallow_click=false;return;}   /* the end of a swipe */
+    alert_open(e);
+}
 static void build_weather_alerts(void){
     alert_card=lv_obj_create(weather_root);plain_obj(alert_card);
-    lv_obj_set_pos(alert_card,70,254);lv_obj_set_size(alert_card,340,62);
+    lv_obj_set_pos(alert_card,ALERT_CARD_X,254);lv_obj_set_size(alert_card,340,62);
     lv_obj_set_style_radius(alert_card,18,0);
     lv_obj_set_style_bg_opa(alert_card,LV_OPA_20,0);
     lv_obj_set_style_border_width(alert_card,2,0);
     lv_obj_add_flag(alert_card,LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(alert_card,alert_open,LV_EVENT_CLICKED,NULL);
+    lv_obj_add_event_cb(alert_card,alert_clicked,LV_EVENT_CLICKED,NULL);
+    lv_obj_add_event_cb(alert_card,alert_drag,LV_EVENT_PRESSED,NULL);
+    lv_obj_add_event_cb(alert_card,alert_drag,LV_EVENT_PRESSING,NULL);
+    lv_obj_add_event_cb(alert_card,alert_drag,LV_EVENT_RELEASED,NULL);
+    lv_obj_add_event_cb(alert_card,alert_drag,LV_EVENT_PRESS_LOST,NULL);
     alert_icon=plain_label(alert_card,LV_SYMBOL_WARNING,WHITE,&lv_font_montserrat_20,12,19,28);
     alert_event=plain_label(alert_card,"",WHITE,&lv_font_montserrat_16,48,10,280);
     lv_obj_set_style_text_align(alert_event,LV_TEXT_ALIGN_LEFT,0);
@@ -701,25 +787,34 @@ void sf_weather_set_alerts(const sf_weather_alert_view_t *a,int count,int total)
     if(!alert_card)build_weather_alerts();
     if(!a||count<=0){
         alert_pulsing=false;
+        alert_dismissed=false;
+        if(alert_hide_timer){lv_timer_del(alert_hide_timer);alert_hide_timer=NULL;}
+        lv_label_set_text(alert_event,"");
         lv_obj_add_flag(alert_card,LV_OBJ_FLAG_HIDDEN);
         sf_weather_close_alert();
-        for(int i=0;i<CHIP_COUNT;i++)lv_obj_clear_flag(lv_obj_get_parent(chip_value[i]),LV_OBJ_FLAG_HIDDEN);
+        alert_chips(true);
         return;
     }
+    const char *first=a[0].event?a[0].event:"Weather alert";
+    if(alert_dismissed&&(strcmp(first,alert_dismissed_event)||(a[0].level&3)>alert_dismissed_level)){
+        alert_dismissed=false;   /* a new or more severe alert: show it now */
+        if(alert_hide_timer){lv_timer_del(alert_hide_timer);alert_hide_timer=NULL;}
+    }
     if(!alert_text&&!(alert_text=heap_caps_malloc(ALERT_TEXT_CAP,MALLOC_CAP_SPIRAM)))return;
-    for(int i=0;i<CHIP_COUNT;i++)lv_obj_add_flag(lv_obj_get_parent(chip_value[i]),LV_OBJ_FLAG_HIDDEN);
     lv_color_t c=lv_color_hex(alert_color[a[0].level&3]);
+    if(!alert_dismissed)alert_dismissed_level=a[0].level&3;
     lv_obj_set_style_bg_color(alert_card,c,0);
     lv_obj_set_style_border_color(alert_card,c,0);
     lv_obj_set_style_border_opa(alert_card,LV_OPA_COVER,0);
     lv_obj_set_style_text_color(alert_icon,c,0);
-    lv_label_set_text(alert_event,a[0].event?a[0].event:"Weather alert");
+    lv_label_set_text(alert_event,first);
     char sub[96];
     if(total>1)snprintf(sub,sizeof(sub),"%s%s+%d more  \xE2\x80\xA2  Tap to read",a[0].until&&a[0].until[0]?a[0].until:"",
                         a[0].until&&a[0].until[0]?"  \xE2\x80\xA2  ":"",total-1);
     else snprintf(sub,sizeof(sub),"%s%sTap to read",a[0].until&&a[0].until[0]?a[0].until:"",a[0].until&&a[0].until[0]?"  \xE2\x80\xA2  ":"");
     lv_label_set_text(alert_sub,sub);
-    lv_obj_clear_flag(alert_card,LV_OBJ_FLAG_HIDDEN);
+    if(alert_dismissed){lv_obj_add_flag(alert_card,LV_OBJ_FLAG_HIDDEN);alert_chips(true);}
+    else{lv_obj_clear_flag(alert_card,LV_OBJ_FLAG_HIDDEN);alert_chips(false);}
     alert_pulsing=a[0].level>=3;   /* a warning: the card's edge breathes */
     alert_pulse_run();
     /* The full page: each alert's name in its color, when it ends, where, and the text. */
@@ -1337,7 +1432,9 @@ void sf_setup_show(bool show,const sf_setup_info_t *info){
     setup_closable=info->closable;
     setup_home=info->home_ip&&info->home_ip[0];
     if(!was_up)setup_page=setup_first();
+    sf_lvmem_prefer_psram(true);   /* big and on demand: keep internal RAM for Wi-Fi */
     build_setup(info);
+    sf_lvmem_prefer_psram(false);
 }
 
 /* ---- Test mode menu -------------------------------------------------------
@@ -1349,12 +1446,17 @@ enum { ROW_RAM_LOW, ROW_BLOCK, ROW_PSRAM, ROW_SD, ROW_BATTERY, ROW_WIFI, ROW_IP,
        ROW_BOOTS, ROW_RESET, ROW_CRASH, ROW_CLOCK, ROW_VERSION, ROW_UPDATE, ROW_COUNT };
 enum { WEB_SETTINGS, WEB_PHOTOS, WEB_BIRTHDAYS, WEB_IP, WEB_COUNT };
 static lv_obj_t *test_root, *test_list, *test_badge, *web_note, *test_version;
+/* "Check for updates": once tapped, its label shows the check as it goes (the System
+   panel's Updates row is far up the list). */
+static lv_obj_t *update_button_label;
+static bool update_tapped;
 static lv_obj_t *tile_value[TILE_COUNT], *row_value[ROW_COUNT], *web_row[WEB_COUNT], *web_ip;
 static sf_system_stats_t test_stats;
 static bool have_test_stats;
 static void apply_stats(void);
 static void test_clicked(lv_event_t *e){
     sf_test_action_t a=(sf_test_action_t)(uintptr_t)lv_event_get_user_data(e);
+    if(a==SF_TEST_UPDATE&&update_button_label){update_tapped=true;set_text(update_button_label,"Checking for updates...");}
     if(on_test_action)on_test_action(a);
 }
 /* Flex container spanning the list width. */
@@ -1379,7 +1481,7 @@ static lv_obj_t *card(lv_obj_t *parent){
     return c;
 }
 /* Tile: icon above the name; a wide tile puts them side by side. */
-static void test_button(lv_obj_t *parent,sf_test_action_t a,const char *icon,const char *text,
+static lv_obj_t *test_button(lv_obj_t *parent,sf_test_action_t a,const char *icon,const char *text,
                         lv_color_t icon_color,lv_color_t bg,bool wide){
     lv_obj_t *b=lv_btn_create(parent);
     lv_obj_set_size(b,wide?LIST_W:(LIST_W-10)/2,wide?52:72);
@@ -1394,7 +1496,9 @@ static void test_button(lv_obj_t *parent,sf_test_action_t a,const char *icon,con
     lv_obj_set_style_pad_row(b,4,0);lv_obj_set_style_pad_column(b,12,0);
     lv_obj_add_event_cb(b,test_clicked,LV_EVENT_CLICKED,(void*)(uintptr_t)a);
     text_label(b,icon,icon_color,&lv_font_montserrat_20);
-    text_label(b,text,WHITE,LV_FONT_DEFAULT);
+    lv_obj_t *l=text_label(b,text,WHITE,LV_FONT_DEFAULT);
+    if(wide){lv_label_set_long_mode(l,LV_LABEL_LONG_DOT);lv_obj_set_style_max_width(l,LIST_W-60,0);}
+    return l;
 }
 /* "Name ........ value" row; returns the value label. */
 static lv_obj_t *stat_row(lv_obj_t *parent,const char *name,lv_color_t value_color){
@@ -1484,7 +1588,8 @@ static void build_test_menu(void){
     lv_obj_set_style_text_align(web_note,LV_TEXT_ALIGN_CENTER,0);
 
     section(test_list,"DEVICE",lv_color_hex(0xFF8A80));
-    test_button(test_list,SF_TEST_UPDATE,LV_SYMBOL_DOWNLOAD,"Check for updates",ACCENT_GREEN,ACCENT_GREEN,true);
+    update_tapped=false;
+    update_button_label=test_button(test_list,SF_TEST_UPDATE,LV_SYMBOL_DOWNLOAD,"Check for updates",ACCENT_GREEN,ACCENT_GREEN,true);
     test_button(test_list,SF_TEST_RESTART,LV_SYMBOL_REFRESH,"Restart SkyFrame",lv_color_hex(0xFF8A80),
                 lv_color_hex(0xFF6B6B),true);
 
@@ -1500,8 +1605,9 @@ static void build_test_menu(void){
 }
 void sf_test_menu_show(bool show){
     if(show==(test_root!=NULL))return;
-    if(show){if(screens_parent){build_test_menu();lv_obj_clear_flag(test_root,LV_OBJ_FLAG_HIDDEN);}}
-    else{lv_obj_del_async(test_root);test_root=NULL;}
+    if(show){if(screens_parent){sf_lvmem_prefer_psram(true);build_test_menu();sf_lvmem_prefer_psram(false);
+                                lv_obj_clear_flag(test_root,LV_OBJ_FLAG_HIDDEN);}}
+    else{lv_obj_del_async(test_root);test_root=NULL;update_button_label=NULL;update_tapped=false;}
 }
 static void apply_stats(void){
     if(!test_root||!have_test_stats)return;
@@ -1539,6 +1645,7 @@ static void apply_stats(void){
     set_text(row_value[ROW_CLOCK],b);
     set_text(row_value[ROW_VERSION],s->built[0]?s->built:"--");
     set_text(row_value[ROW_UPDATE],s->update[0]?s->update:"--");
+    if(update_tapped&&update_button_label&&s->update[0])set_text(update_button_label,s->update);
     set_text(row_value[ROW_CRASH],s->crash[0]?s->crash:"None saved");
     set_text(test_version,s->version);
 

@@ -377,6 +377,7 @@ void Touch_Init(void) {}
 void SD_Init(void) { SD_Card = &sim_card; }
 void Set_Backlight(uint8_t light) { backlight = light > 100 ? 100 : light; frame_dirty = true; }
 uint32_t LCD_Vsync_Count(void) { return (uint32_t)(esp_timer_get_time() / 16667); }   /* 60 Hz panel */
+void LCD_Set_Vsync_Task(TaskHandle_t task) { (void)task; }   /* the loop polls every 5 ms */
 const void *LCD_Frame_Buffer(void) { return framebuffer; }
 
 static void flush(lv_disp_drv_t *drv, const lv_area_t *a, lv_color_t *px) {
@@ -405,6 +406,9 @@ static void make_mask(void) {
     SDL_SetTextureBlendMode(mask_tex, SDL_BLENDMODE_BLEND);
     free(m);
 }
+/* Frame timing: a PC's numbers say nothing about the device. */
+void lvgl_render_begin(void) {}
+void lvgl_frame_stats_take(lvgl_frame_stats_t *out) { memset(out, 0, sizeof(*out)); }
 void LVGL_Init(void) {
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); exit(1); }
@@ -515,3 +519,6 @@ int main(int argc, char **argv) {
     app_main();
     return 0;
 }
+
+/* LVGL memory placement (skyframe_lvmem.h): the simulator has one kind of RAM. */
+void sf_lvmem_prefer_psram(bool on) { (void)on; }

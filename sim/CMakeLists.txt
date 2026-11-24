@@ -17,7 +17,7 @@ find_package(Threads REQUIRED)
 # LVGL, exactly as configured for the firmware (no warnings: not our code).
 file(GLOB_RECURSE LVGL_SRC ${ROOT}/managed_components/lvgl__lvgl/src/*.c)
 add_library(lvgl STATIC ${LVGL_SRC})
-target_include_directories(lvgl PUBLIC ${ROOT}/managed_components/lvgl__lvgl ${CMAKE_CURRENT_SOURCE_DIR}
+target_include_directories(lvgl PUBLIC ${ROOT}/managed_components/lvgl__lvgl ${CMAKE_CURRENT_SOURCE_DIR} ${ROOT}/components/skyframe_screens/include
                                        ${CMAKE_CURRENT_SOURCE_DIR}/shim)
 target_compile_definitions(lvgl PUBLIC LV_CONF_KCONFIG_EXTERNAL_INCLUDE="sim_lv_conf.h"
                                        SIM_SDKCONFIG="${SDKCONFIG}" LV_INV_BUF_SIZE=128)
