@@ -41,7 +41,7 @@ set_source_files_properties(${ROOT}/managed_components/espressif__esp_jpeg/tjpgd
   PROPERTIES COMPILE_OPTIONS "-include;${CMAKE_CURRENT_SOURCE_DIR}/shim/tjpgd.h")
 
 add_executable(skyframe_sim
-  sim_platform.c sim_services.c sim_update.c
+  sim_platform.c sim_services.c sim_update.c sim_icon_win.c
   ${ROOT}/components/skyframe_update/skyframe_update_manifest.c
   ${ROOT}/main/main.c ${ROOT}/main/birthdays.c ${ROOT}/main/plane_library.c
   ${ROOT}/components/skyframe_engine/skyframe_engine.c
@@ -56,6 +56,11 @@ add_executable(skyframe_sim
   ${ROOT}/components/skyframe_screens/skyframe_image.c
   ${ROOT}/components/skyframe_photoplayer/skyframe_photoplayer.c
   ${ROOT}/components/skyframe_jpeg/skyframe_jpeg.c)
+# The app icon (Explorer, taskbar, title bar): SkyFrame's radar, as on the web pages.
+if(WIN32)
+  enable_language(RC)
+  target_sources(skyframe_sim PRIVATE skyframe.rc)
+endif()
 # The shim folder comes first: its headers stand in for ESP-IDF's (and for skyframe_sd.h).
 target_include_directories(skyframe_sim PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/shim
@@ -71,6 +76,7 @@ target_include_directories(skyframe_sim PRIVATE
   ${ROOT}/components/skyframe_update/include
   ${ROOT}/managed_components/espressif__cjson/cJSON)
 file(STRINGS "${ROOT}/version.txt" SKYFRAME_VERSION LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ROOT}/version.txt")   # a new version re-configures
 target_compile_definitions(skyframe_sim PRIVATE SIM_SD_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/sdcard"
                            SIM_VERSION="${SKYFRAME_VERSION}")
 target_compile_options(skyframe_sim PRIVATE -O2 -Wall -Wno-unused-function -Wno-format-truncation

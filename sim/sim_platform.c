@@ -202,6 +202,20 @@ BaseType_t xTaskNotify(TaskHandle_t t, uint32_t v, eNotifyAction action) {
 BaseType_t xTaskNotifyGive(TaskHandle_t t) { return xTaskNotify(t, 0, eIncrement); }
 uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t wait) {
     struct sim_task *t = xTaskGetCurrentTaskHandle();
+    if (wait != portMAX_DELAY && pthread_equal(pthread_self(), main_thread)) {
+        /* app_main's loop waits here for the next panel refresh: keep the window alive, as
+           vTaskDelay does, and come back after `wait` (the simulator has no refresh signal). */
+        int64_t until = esp_timer_get_time() + (int64_t)wait * 1000;
+        for (;;) {
+            sim_pump();
+            pthread_mutex_lock(&t->lock);
+            uint32_t v = t->value;
+            if (v) { t->value = clear ? 0 : v - 1; t->pending = t->value != 0; }
+            pthread_mutex_unlock(&t->lock);
+            if (v || esp_timer_get_time() >= until) return v;
+            sleep_ms(1);
+        }
+    }
     pthread_mutex_lock(&t->lock);
     if (!t->value) { t->pending = false; wait_pending(t, wait); }
     uint32_t v = t->value;
@@ -406,6 +420,7 @@ static void make_mask(void) {
     SDL_SetTextureBlendMode(mask_tex, SDL_BLENDMODE_BLEND);
     free(m);
 }
+void sim_set_window_icon(SDL_Window *window);
 /* Frame timing: a PC's numbers say nothing about the device. */
 void lvgl_render_begin(void) {}
 void lvgl_frame_stats_take(lvgl_frame_stats_t *out) { memset(out, 0, sizeof(*out)); }
@@ -413,6 +428,7 @@ void LVGL_Init(void) {
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); exit(1); }
     window = SDL_CreateWindow("SkyFrame simulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIN, WIN, 0);
+    sim_set_window_icon(window);   /* sim_icon_win.c */
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     screen_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, PANEL, PANEL);
