@@ -68,6 +68,9 @@ static esp_err_t fetch_locked(const char *url,size_t max_payload,reply_t *reply,
  reply->cap=max_payload+1;reply->body[0]=0;
  esp_http_client_config_t cfg={.url=url,.timeout_ms=12000,.event_handler=on_event,
      .user_data=reply,.crt_bundle_attach=esp_crt_bundle_attach,.buffer_size=2048,
+     /* Request line + headers. The default 512 can't hold GitHub's signed redirect address
+        (~900 bytes; the update check follows one); allocated only while fetching. */
+     .buffer_size_tx=2048,
      .user_agent="SkyFrame/0.4 (personal noncommercial radar)"};
  esp_http_client_handle_t client=esp_http_client_init(&cfg);
  if(!client){free(reply->body);reply->body=NULL;return ESP_FAIL;}

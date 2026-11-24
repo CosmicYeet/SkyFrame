@@ -61,6 +61,7 @@ static esp_err_t update_post(httpd_req_t *r)
 {
     if (!sf_portal_same_origin(r)) return fail(r, "403 Forbidden", "Use the SkyFrame page to update");
     if (r->content_len <= 0 || r->content_len > MAX_FIRMWARE) return fail(r, "400 Bad Request", "That isn't a SkyFrame firmware file");
+    if (sf_update_restart_pending()) return fail(r, "409 Conflict", "An update is already installed; SkyFrame is restarting");
     const esp_partition_t *slot = esp_ota_get_next_update_partition(NULL);
     char *buf = heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM);
     esp_ota_handle_t h = 0;

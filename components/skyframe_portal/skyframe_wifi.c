@@ -8,6 +8,7 @@
 #include "esp_attr.h"
 #include "esp_timer.h"
 #include "esp_netif_sntp.h"
+#include "esp_ota_ops.h"
 #include "mdns.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -146,7 +147,15 @@ static void use_scan(void){
    restart, tells the next boot it was intended. */
 #define PLANNED_MAGIC 0x53465253u
 static RTC_NOINIT_ATTR uint32_t planned_mark;
-void sf_planned_restart(void){planned_mark=PLANNED_MAGIC;esp_restart();}
+void sf_planned_restart(void){
+ /* Someone chose this restart (settings saved, test menu) on a new version that hasn't
+    proven itself yet: it runs well enough to be used, so keep it. Going back now could also
+    leave the previous version with settings it can't read. */
+ const esp_partition_t *run=esp_ota_get_running_partition();esp_ota_img_states_t st;
+ if(run&&esp_ota_get_state_partition(run,&st)==ESP_OK&&st==ESP_OTA_IMG_PENDING_VERIFY)
+  esp_ota_mark_app_valid_cancel_rollback();
+ planned_mark=PLANNED_MAGIC;esp_restart();
+}
 bool sf_restart_was_planned(void){
  static int planned=-1;               /* read once: the mark is cleared for the next boot */
  if(planned<0){planned=planned_mark==PLANNED_MAGIC&&esp_reset_reason()!=ESP_RST_POWERON;planned_mark=0;}

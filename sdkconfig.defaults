@@ -40,6 +40,9 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 # released after the handshake. Wi-Fi/lwIP buffers may also use PSRAM.
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Precomputed P-256 tables in flash (~29 KB): ECDHE handshakes (every 20 s for traffic)
+# run about 3-4 times faster on the curve maths; no RAM cost.
+CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 # A browser on the web pages keeps up to ~7 connections open; with the web server's own and
 # mDNS, the default 10 left none for the HTTPS fetches (air traffic, weather).

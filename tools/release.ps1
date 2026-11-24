@@ -61,8 +61,11 @@ try {
 
     Step "Firmware build (signed)"
     . C:\Espressif\tools\Microsoft.v6.1.1.PowerShell_profile.ps1 *> $null
+    & idf.py reconfigure | Out-Null   # version.txt changed: the app description must carry it
     & idf.py build
     Check ($LASTEXITCODE -eq 0) "Firmware build failed"
+    $built = (Get-Content build\project_description.json -Raw | ConvertFrom-Json).project_version
+    Check ($built -eq $Version) "The build says v$built, not v$Version (devices would refuse it)"
     & espsecure verify-signature --version 2 --keyfile $key build\SkyFrame.bin
     Check ($LASTEXITCODE -eq 0) "The firmware's signature doesn't verify"
 } catch {

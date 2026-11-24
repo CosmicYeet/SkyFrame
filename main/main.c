@@ -495,7 +495,7 @@ static uint32_t test_length_ms(sf_test_action_t a) {
     case SF_TEST_OWNER_BIRTHDAY: case SF_TEST_FAMILY_BIRTHDAY: return 30000;
     case SF_TEST_TRAFFIC: return 60000;
     case SF_TEST_NIGHT: return 90000;
-    case SF_TEST_TOUR: return 5*TOUR_STEP_MS;
+    case SF_TEST_TOUR: return 6*TOUR_STEP_MS;
     case SF_TEST_USB: return 10000;
     case SF_TEST_WIFI: return 15000;
     case SF_TEST_WX_ALERT: return 45000;
@@ -862,7 +862,7 @@ static void quick_refresh(void) {
     char status[64];
     snprintf(status,sizeof(status),"%s%s%s%s",clock_text,clock_text[0]?"  \xE2\x80\xA2  ":"",
              wifi_bars>=0?LV_SYMBOL_WIFI:"No Wi-Fi",rotation_paused?"  \xE2\x80\xA2  Paused":"");
-    sf_quick_state_t q={.brightness=bright_pct,.paused=rotation_paused,.today_available=today&&today->planes,
+    sf_quick_state_t q={.brightness=bright_pct,.paused=rotation_paused,.today_available=today&&today->planes&&cfg.today_seconds,
                         .usb_available=sf_sd_usb_host_connected()&&!sf_sd_usb_active(),
                         .transitions=!(cfg.ui_flags&SF_UI_NO_TRANSITIONS),
                         .screen=ctrl.scheduler.screen,.status=status};
@@ -891,7 +891,7 @@ static void quick_action(sf_quick_action_t a) {
     case SF_QUICK_RADAR:   sf_schedule_jump(&ctrl.scheduler,SF_SCREEN_RADAR,t); break;
     case SF_QUICK_WEATHER: sf_schedule_jump(&ctrl.scheduler,SF_SCREEN_WEATHER,t); break;
     case SF_QUICK_PHOTOS:  sf_schedule_jump(&ctrl.scheduler,SF_SCREEN_PHOTOS,t); break;
-    case SF_QUICK_TODAY:   if(today && today->planes) sf_schedule_jump(&ctrl.scheduler,SF_SCREEN_TODAY,t); break;
+    case SF_QUICK_TODAY:   if(today && today->planes && cfg.today_seconds) sf_schedule_jump(&ctrl.scheduler,SF_SCREEN_TODAY,t); break;
     case SF_QUICK_PAUSE:   rotation_paused=!rotation_paused; paused_since=t; break;
     case SF_QUICK_SETTINGS: open_settings(); break;
     case SF_QUICK_USB:      sf_sd_usb_share(true); break;   /* the USB notice appears once the computer has it */
@@ -939,24 +939,36 @@ static void tick_splash(uint32_t t) {
 }
 
 /* ---- Over-the-air updates ---------------------------------------------------------
-   A newly installed version keeps itself once it has been on Wi-Fi for a minute; one that
-   never joins within 15 minutes goes back to the previous version (a crash or freeze before
-   that is caught by the bootloader). Updates are checked in the 3 AM hour, while dimmed. */
+   A newly installed version keeps itself once, after a minute on Wi-Fi, it has read the
+   release information from GitHub: it can install the next fix. One that stays offline for
+   15 minutes, or can't reach GitHub within an hour, goes back to the previous version (a
+   crash or freeze before that is caught by the bootloader). A restart someone chooses keeps
+   it (sf_planned_restart). Updates are checked in the 3 AM hour, while dimmed, and retried
+   every 15 minutes in that hour when the check fails. */
 static int local_ymd(const struct tm *lt);
 #define UPDATE_PROVE_MS 60000U
+#define UPDATE_PROVE_EVERY_MS (5U*60000U)
 #define UPDATE_GIVE_UP_MS (15U*60000U)
+#define UPDATE_PROVE_LIMIT_MS (60U*60000U)
+#define UPDATE_RETRY_MS (15U*60000U)
+#define UPDATE_TRIES 4
 static void tick_updates(uint32_t t) {
-    static uint32_t last, wifi_since;
-    static int checked_day;
+    static uint32_t last, wifi_since, offline_since, next_prove, next_try;
+    static int try_day, tries;
     static bool news_done;
     if(last && (uint32_t)(t-last)<1000) return;
     last=t?t:1;
     bool online=sf_wifi_is_connected();
-    if(!online) wifi_since=0;
-    else if(!wifi_since) wifi_since=t?t:1;
+    if(!online) { wifi_since=0; if(!offline_since) offline_since=t?t:1; }
+    else { offline_since=0; if(!wifi_since) wifi_since=t?t:1; }
     if(sf_update_pending_verify()) {
-        if(online && (uint32_t)(t-wifi_since)>=UPDATE_PROVE_MS) sf_update_confirm();
-        else if(!online && t>=UPDATE_GIVE_UP_MS) sf_update_reject();
+        if(sf_update_server_reached()) sf_update_confirm();
+        else if(online && (uint32_t)(t-wifi_since)>=UPDATE_PROVE_MS && (int32_t)(t-next_prove)>=0) {
+            next_prove=t+UPDATE_PROVE_EVERY_MS;
+            sf_update_check_now(false);
+        }
+        else if((offline_since && (uint32_t)(t-offline_since)>=UPDATE_GIVE_UP_MS) || t>=UPDATE_PROVE_LIMIT_MS)
+            sf_update_reject();
         return;
     }
     /* What's new, once, when nothing covers the screens. */
@@ -973,7 +985,18 @@ static void tick_updates(uint32_t t) {
     struct tm lt;
     if(online && !test_mode && !setup_mode && local_time(&lt) && lt.tm_hour==UPDATE_HOUR) {
         int day=local_ymd(&lt);
-        if(day!=checked_day) { checked_day=day; ESP_LOGI(TAG,"Nightly update check"); sf_update_check_now(true); }
+        if(day!=try_day) { try_day=day; tries=0; next_try=t; }
+        if(tries<UPDATE_TRIES && (int32_t)(t-next_try)>=0) {
+            sf_update_status_t us;
+            sf_update_status(&us);
+            if(tries && us.state!=SF_UPDATE_FAILED) tries=UPDATE_TRIES;   /* it worked: done tonight */
+            else {
+                tries++;
+                next_try=t+UPDATE_RETRY_MS;
+                ESP_LOGI(TAG,"Nightly update check (%d of %d)",tries,UPDATE_TRIES);
+                sf_update_check_now(true);
+            }
+        }
     }
 }
 
@@ -1163,19 +1186,21 @@ static void today_photo_worker(void *arg) {
     (void)arg;
     app_msg_t *msg=heap_caps_calloc(1,sizeof(*msg),MALLOC_CAP_SPIRAM);
     char loaded[8]="\x01";                  /* nothing loaded yet: differs from any type */
+    uint32_t loaded_gen=0;                  /* the card's generation when `loaded` had no photo */
+    bool loaded_photo=false;
     for(;;) {
         ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(5000));
         char type[8];
         taskENTER_CRITICAL(&today_photo_lock);
         memcpy(type,today_photo_type,sizeof(type));
         taskEXIT_CRITICAL(&today_photo_lock);
-        if(!msg || !strcmp(type,loaded)) continue;
+        if(!msg || (!strcmp(type,loaded) && (loaded_photo || !type[0] || loaded_gen==sf_sd_generation()))) continue;
         uint16_t *px=type[0]?plane_library_load_type(type):NULL;
         memset(msg,0,sizeof(*msg));
         msg->type=MSG_TODAY_PHOTO;
         snprintf(msg->data.photo.icao,sizeof(msg->data.photo.icao),"%s",type);
         msg->data.photo.pixels=px;
-        if(send_message(msg)) snprintf(loaded,sizeof(loaded),"%s",type);
+        if(send_message(msg)) { snprintf(loaded,sizeof(loaded),"%s",type); loaded_photo=px!=NULL; loaded_gen=sf_sd_generation(); }
         else free(px);
     }
 }

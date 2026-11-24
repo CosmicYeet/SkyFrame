@@ -209,6 +209,7 @@ typedef struct {
     void *user_data;
     esp_err_t (*crt_bundle_attach)(void *conf);
     int buffer_size;
+    int buffer_size_tx;      /* request line + headers; 512 when 0, as on the device */
     const char *user_agent;
 } esp_http_client_config_t;
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *cfg);

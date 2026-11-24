@@ -302,6 +302,7 @@ static size_t http_write(char *data, size_t size, size_t n, void *p) {
     struct sim_http *c = p;
     size_t bytes = size * n;
     curl_easy_getinfo(c->curl, CURLINFO_RESPONSE_CODE, &c->status);
+    if (c->status >= 300 && c->status < 400) return bytes;   /* a redirect's own body */
     if (!c->cfg.event_handler) return bytes;
     esp_http_client_event_t e = { .client = c, .user_data = c->cfg.user_data };
     if (!c->headers_sent) {
@@ -312,19 +313,40 @@ static size_t http_write(char *data, size_t size, size_t n, void *p) {
     e.event_id = HTTP_EVENT_ON_DATA; e.data = data; e.data_len = (int)bytes;
     return c->cfg.event_handler(&e) == ESP_OK ? bytes : 0;
 }
+/* The device's client writes "GET <path> HTTP/1.1" into a buffer_size_tx buffer (512 bytes
+   unless set) and fails when it doesn't fit: GitHub's signed redirect addresses are ~900. */
+static bool request_line_fits(const struct sim_http *c, const char *url) {
+    const char *p = strstr(url, "://");
+    p = p ? strchr(p + 3, '/') : NULL;
+    size_t line = 4 + (p ? strlen(p) : 1) + 9, cap = c->cfg.buffer_size_tx > 0 ? (size_t)c->cfg.buffer_size_tx : 512;
+    if (line < cap) return true;
+    sim_log('W', TAG, "HTTP request line of %u bytes doesn't fit buffer_size_tx %u (the device fails here)",
+            (unsigned)line, (unsigned)cap);
+    return false;
+}
 esp_err_t esp_http_client_perform(esp_http_client_handle_t c) {
     if (!c || !c->curl) return ESP_FAIL;
-    curl_easy_setopt(c->curl, CURLOPT_URL, c->url);
     curl_easy_setopt(c->curl, CURLOPT_USERAGENT, c->agent);
-    curl_easy_setopt(c->curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(c->curl, CURLOPT_MAXREDIRS, 5L);
+    curl_easy_setopt(c->curl, CURLOPT_FOLLOWLOCATION, 0L);   /* followed below, like the device */
     curl_easy_setopt(c->curl, CURLOPT_TIMEOUT_MS, (long)(c->cfg.timeout_ms ? c->cfg.timeout_ms : 12000));
     curl_easy_setopt(c->curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(c->curl, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_NATIVE_CA);
     curl_easy_setopt(c->curl, CURLOPT_WRITEFUNCTION, http_write);
     curl_easy_setopt(c->curl, CURLOPT_WRITEDATA, c);
-    CURLcode r = curl_easy_perform(c->curl);
-    curl_easy_getinfo(c->curl, CURLINFO_RESPONSE_CODE, &c->status);
+    CURLcode r = CURLE_OK;
+    char *url = strdup(c->url);
+    for (int hops = 0; hops <= 5; hops++) {
+        if (!request_line_fits(c, url)) { free(url); return ESP_FAIL; }
+        curl_easy_setopt(c->curl, CURLOPT_URL, url);
+        r = curl_easy_perform(c->curl);
+        curl_easy_getinfo(c->curl, CURLINFO_RESPONSE_CODE, &c->status);
+        char *next = NULL;
+        if (r != CURLE_OK || c->status < 300 || c->status >= 400 ||
+            curl_easy_getinfo(c->curl, CURLINFO_REDIRECT_URL, &next) != CURLE_OK || !next) break;
+        free(url);
+        url = strdup(next);
+    }
+    free(url);
     if (r != CURLE_OK) sim_log('W', TAG, "HTTP %s: %s", c->url, curl_easy_strerror(r));
     return r == CURLE_OK ? ESP_OK : ESP_FAIL;
 }

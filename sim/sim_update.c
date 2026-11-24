@@ -22,7 +22,7 @@ static void checker(void *arg)
     size_t len = 0;
     sf_update_manifest_t m;
     if (sf_net_get_bytes(SF_UPDATE_MANIFEST_URL, SF_UPDATE_MANIFEST_MAX, &data, &len) != ESP_OK) {
-        set_status(SF_UPDATE_FAILED, "No release published yet");
+        set_status(SF_UPDATE_FAILED, "Couldn't check (ESP_FAIL)");
     } else if (!sf_update_parse_manifest((const char *)data, len, &m)) {
         set_status(SF_UPDATE_FAILED, "Release information unreadable");
     } else if (sf_version_compare(m.version, sf_update_version()) <= 0) {
@@ -43,6 +43,8 @@ void sf_update_check_now(bool install)
 }
 void sf_update_status(sf_update_status_t *out) { *out = status; }
 bool sf_update_pending_verify(void) { return false; }
+bool sf_update_server_reached(void) { return status.state == SF_UPDATE_CURRENT || status.state == SF_UPDATE_AVAILABLE; }
+bool sf_update_restart_pending(void) { return false; }
 void sf_update_confirm(void) {}
 void sf_update_reject(void) {}
 bool sf_update_take_news(char *version, size_t vcap, char *notes, size_t ncap)

@@ -48,6 +48,10 @@ void sf_update_check_now(bool install);
 void sf_update_status(sf_update_status_t *out);
 /* Running a newly installed version that hasn't proven itself yet. */
 bool sf_update_pending_verify(void);
+/* This boot has read the release information: HTTPS and the updater work. */
+bool sf_update_server_reached(void);
+/* An update is installed and waiting for its restart. */
+bool sf_update_restart_pending(void);
 void sf_update_confirm(void);                 /* it works: keep it */
 void sf_update_reject(void);                  /* it doesn't: back to the previous one (restarts) */
 /* What's new, once after an update (false otherwise). */

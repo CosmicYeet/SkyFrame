@@ -8,6 +8,7 @@
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_ota_ops.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,12 +23,17 @@ static const char *TAG = "skyframe_update";
 #define KEY_BAD "upd_bad"          /* a version that didn't prove itself: never offered again */
 #define KEY_NEWS_VER "upd_news_v"  /* installed version whose notes are still to be shown */
 #define KEY_NEWS "upd_news"
+#define KEY_TRY_V "upd_try_v"      /* a version that went back once, and how often (KEY_TRY_N) */
+#define KEY_TRY_N "upd_try_n"
+#define STRIKES 2                  /* went back this often: never offered again */
+#define INSTALL_LIMIT_US (10 * 60 * 1000000LL)   /* a download may take this long in all */
 
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 static sf_update_status_t status = {.state = SF_UPDATE_IDLE};
 static TaskHandle_t worker_task;
 static volatile bool want_install;
 static bool pending;               /* running a new version that hasn't proven itself */
+static volatile bool reached;      /* this boot read the release information from GitHub */
 static char bad_version[16];
 static void (*restart_cb)(void);
 
@@ -74,8 +80,16 @@ static bool nvs_take_str(const char *key, char *out, size_t cap)
 }
 
 /* ---- Checking and installing (worker task, CPU1) ---- */
+/* An update is installed and the restart into it is on its way (from here or the web page):
+   installing again would erase it. */
+bool sf_update_restart_pending(void)
+{
+    const esp_partition_t *boot = esp_ota_get_boot_partition(), *run = esp_ota_get_running_partition();
+    return boot && run && boot != run;
+}
 static void install(const sf_update_manifest_t *m)
 {
+    if (sf_update_restart_pending()) { set_status(SF_UPDATE_INSTALLED, 100, "Installed; restarting"); return; }
     /* One TLS session at a time (Wi-Fi + LCD leave little internal RAM): hold the network
        lock for the whole download; traffic polls wait (or skip one update). */
     if (!sf_net_lock(60000)) { set_status(SF_UPDATE_FAILED, 0, "Busy; will try again later"); return; }
@@ -98,7 +112,9 @@ static void install(const sf_update_manifest_t *m)
         }
     }
     int size = h ? esp_https_ota_get_image_size(h) : 0, last = -1;
+    const int64_t give_up = esp_timer_get_time() + INSTALL_LIMIT_US;   /* the network lock is held */
     while (e == ESP_OK) {
+        if (esp_timer_get_time() > give_up) { e = ESP_ERR_TIMEOUT; break; }
         e = esp_https_ota_perform(h);
         if (e != ESP_ERR_HTTPS_OTA_IN_PROGRESS) break;
         e = ESP_OK;
@@ -132,6 +148,7 @@ static void check(bool install_newer)
     bool ok = sf_update_parse_manifest((const char *)data, len, &m);
     free(data);
     if (!ok) { set_status(SF_UPDATE_FAILED, 0, "Release information unreadable"); return; }
+    reached = true;   /* HTTPS, GitHub and the manifest work: this version can update itself */
     if (sf_version_compare(m.version, sf_update_version()) <= 0) {
         set_status(SF_UPDATE_CURRENT, 0, "Up to date (v%s)", sf_update_version());
         return;
@@ -164,6 +181,7 @@ void sf_update_check_now(bool install_newer)
 
 /* ---- Proving a new version ---- */
 bool sf_update_pending_verify(void) { return pending; }
+bool sf_update_server_reached(void) { return reached; }
 void sf_update_confirm(void)
 {
     if (!pending) return;
@@ -175,8 +193,10 @@ void sf_update_confirm(void)
 void sf_update_reject(void)
 {
     if (!pending) return;
-    ESP_LOGW(TAG, "Version %s never joined Wi-Fi: going back to the previous version", sf_update_version());
-    esp_ota_mark_app_invalid_rollback_and_reboot();
+    ESP_LOGW(TAG, "Version %s couldn't reach the updates: going back to the previous version", sf_update_version());
+    esp_err_t e = esp_ota_mark_app_invalid_rollback_and_reboot();   /* returns only on failure */
+    ESP_LOGE(TAG, "Going back failed (%s): keeping %s", esp_err_to_name(e), sf_update_version());
+    pending = false;   /* don't retry every second; the bootloader still rolls back on a crash */
 }
 
 /* ---- What's new ---- */
@@ -219,16 +239,32 @@ void sf_update_init(void (*restart)(void))
     pending = run && esp_ota_get_state_partition(run, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;
     if (pending) ESP_LOGI(TAG, "Running new version %s: waiting for it to prove itself", sf_update_version());
     nvs_take_str(KEY_BAD, bad_version, sizeof(bad_version));
-    /* A version that crashed or froze before proving itself: remember it, never take it again. */
+    /* A version that went back before proving itself (crash, freeze, no updates, power cut):
+       try it once more on another night; the second time, never again. The "installed" note
+       (KEY_NEWS_VER) marks the first boot after it went back, so each counts once. */
     const esp_partition_t *bad = esp_ota_get_last_invalid_partition();
     esp_app_desc_t d;
+    char installed[16];
     if (bad && esp_ota_get_partition_description(bad, &d) == ESP_OK && strcmp(d.version, sf_update_version())) {
-        if (strcmp(d.version, bad_version)) {
-            ESP_LOGW(TAG, "Version %s didn't start properly; kept %s", d.version, sf_update_version());
-            snprintf(bad_version, sizeof(bad_version), "%.15s", d.version);
-            nvs_put(KEY_BAD, bad_version);
+        if (nvs_take_str(KEY_NEWS_VER, installed, sizeof(installed)) && !strcmp(installed, d.version)) {
+            char tried[16];
+            uint8_t n = 0;
+            nvs_handle_t h;
+            if (nvs_take_str(KEY_TRY_V, tried, sizeof(tried)) && !strcmp(tried, d.version) &&
+                nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+                nvs_get_u8(h, KEY_TRY_N, &n);
+                nvs_close(h);
+            }
+            n++;
+            ESP_LOGW(TAG, "Version %s went back (%u of %d); kept %s", d.version, n, STRIKES, sf_update_version());
+            nvs_put(KEY_TRY_V, d.version);
+            if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) { nvs_set_u8(h, KEY_TRY_N, n); nvs_commit(h); nvs_close(h); }
+            if (n >= STRIKES) { snprintf(bad_version, sizeof(bad_version), "%.15s", d.version); nvs_put(KEY_BAD, bad_version); }
+            nvs_put(KEY_NEWS_VER, NULL);
+            nvs_put(KEY_NEWS, NULL);
         }
-        set_status(SF_UPDATE_FAILED, 0, "v%s didn't start; kept v%s", d.version, sf_update_version());
+        if (!strcmp(d.version, bad_version)) set_status(SF_UPDATE_FAILED, 0, "v%s didn't start; kept v%s", d.version, sf_update_version());
+        else set_status(SF_UPDATE_FAILED, 0, "v%s went back; will try again", d.version);
     }
     char crash[48];
     if (sf_update_crash_summary(crash, sizeof(crash))) ESP_LOGW(TAG, "Last crash saved: %s", crash);

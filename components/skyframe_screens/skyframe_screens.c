@@ -727,10 +727,11 @@ void sf_weather_set_alerts(const sf_weather_alert_view_t *a,int count,int total)
     for(int i=0;i<count;i++){
         char head[96];
         if(i)n=alert_append(n,"\n\n");
-        snprintf(head,sizeof(head),"#%06lX ",(unsigned long)alert_color[a[i].level&3]);
-        n=alert_append(n,head);
+        /* the color tag is written directly: alert_append blanks every '#' */
+        int k=snprintf(head,sizeof(head),"#%06lX ",(unsigned long)alert_color[a[i].level&3]);
+        if(k>0&&n+(size_t)k+1<ALERT_TEXT_CAP){memcpy(alert_text+n,head,(size_t)k);n+=(size_t)k;alert_text[n]=0;}
         n=alert_append(n,a[i].event);
-        /* the closing '#' ends the color; written directly since alert_append blanks it */
+        /* the closing '#' ends the color */
         if(n+2<ALERT_TEXT_CAP){alert_text[n++]='#';alert_text[n++]='\n';alert_text[n]=0;}
         if(a[i].until&&a[i].until[0]){n=alert_append(n,a[i].until);n=alert_append(n,"\n");}
         if(a[i].area&&a[i].area[0]){n=alert_append(n,"For ");n=alert_append(n,a[i].area);n=alert_append(n,"\n");}
@@ -1769,6 +1770,7 @@ static const uint32_t sighting_color[]={0x7CF5A3,0x6EDCFF,0xFFC857,0xC89BFF,0xFF
 static lv_obj_t *sight_ring, *sight_banner, *sight_title, *sight_name, *sight_detail;
 static lv_timer_t *sight_timer;
 static void (*on_sighting_tap)(void);
+static bool sight_is_news;   /* the "Updated to" card: a tap only closes it */
 void sf_screens_set_sighting_cb(void (*tapped)(void)){on_sighting_tap=tapped;}
 static lv_opa_t ring_opa;
 static lv_color_t ring_color;
@@ -1820,7 +1822,7 @@ static void sighting_timeout(lv_timer_t *t){(void)t;sight_timer=NULL;sighting_hi
 static void sighting_clicked(lv_event_t *e){
     (void)e;
     sighting_hide(true);
-    if(on_sighting_tap)on_sighting_tap();
+    if(on_sighting_tap&&!sight_is_news)on_sighting_tap();
 }
 static void build_sighting(void){
     lv_obj_t *top=lv_layer_top();
@@ -1852,6 +1854,7 @@ void sf_sighting_show(const sf_sighting_view_t *v){
     if(!v){sighting_hide(false);return;}
     if(!sight_banner)build_sighting();
     sighting_hide(false);
+    sight_is_news=v->kind==SF_SIGHTING_NEWS;
     lv_color_t c=lv_color_hex(sighting_color[v->kind<=SF_SIGHTING_NEWS?v->kind:0]);
     char b[96];
     snprintf(b,sizeof(b),"%s  %s",v->kind==SF_SIGHTING_EMERGENCY?LV_SYMBOL_WARNING:v->kind==SF_SIGHTING_OVERHEAD?LV_SYMBOL_UP:
