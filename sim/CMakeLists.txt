@@ -41,7 +41,8 @@ set_source_files_properties(${ROOT}/managed_components/espressif__esp_jpeg/tjpgd
   PROPERTIES COMPILE_OPTIONS "-include;${CMAKE_CURRENT_SOURCE_DIR}/shim/tjpgd.h")
 
 add_executable(skyframe_sim
-  sim_platform.c sim_services.c
+  sim_platform.c sim_services.c sim_update.c
+  ${ROOT}/components/skyframe_update/skyframe_update_manifest.c
   ${ROOT}/main/main.c ${ROOT}/main/birthdays.c ${ROOT}/main/plane_library.c
   ${ROOT}/components/skyframe_engine/skyframe_engine.c
   ${ROOT}/components/skyframe_engine/skyframe_controller.c
@@ -66,8 +67,12 @@ target_include_directories(skyframe_sim PRIVATE
   ${ROOT}/components/skyframe_screens/include
   ${ROOT}/components/skyframe_photoplayer/include
   ${ROOT}/components/skyframe_jpeg/include
-  ${ROOT}/components/skyframe_portal/include)
-target_compile_definitions(skyframe_sim PRIVATE SIM_SD_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/sdcard")
+  ${ROOT}/components/skyframe_portal/include
+  ${ROOT}/components/skyframe_update/include
+  ${ROOT}/managed_components/espressif__cjson/cJSON)
+file(STRINGS "${ROOT}/version.txt" SKYFRAME_VERSION LIMIT_COUNT 1)
+target_compile_definitions(skyframe_sim PRIVATE SIM_SD_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/sdcard"
+                           SIM_VERSION="${SKYFRAME_VERSION}")
 target_compile_options(skyframe_sim PRIVATE -O2 -Wall -Wno-unused-function -Wno-format-truncation
                        -include ${CMAKE_CURRENT_SOURCE_DIR}/shim/sim_compat.h)
 target_link_libraries(skyframe_sim PRIVATE lvgl thirdparty SDL2::SDL2 CURL::libcurl Threads::Threads m)

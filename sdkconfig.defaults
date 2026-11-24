@@ -68,3 +68,17 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 
 # Release build: LVGL drawing is much faster at -O2 than the debug default (-Og).
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Over-the-air updates: two firmware slots (partitions.csv), and a new version that doesn't
+# prove itself (Wi-Fi joined, a minute of running) is rolled back at the next start.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# Updates must be signed with SkyFrame's key (RSA-3072). The key lives next to the project
+# folder, never in the repository; every build is signed with it (the running firmware checks
+# an update against its own signature's key, so USB-flashed builds must be signed too).
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+CONFIG_SECURE_BOOT_SIGNING_KEY="../SkyFrame-signing-key.pem"
+# A crash is saved to the coredump partition; test mode shows a summary.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y

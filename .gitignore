@@ -10,3 +10,6 @@ sdkconfig.old
 # Python
 __pycache__/
 *.pyc
+
+# Never commit signing keys
+*.pem

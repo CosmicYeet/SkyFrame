@@ -36,3 +36,5 @@ esp_err_t sf_portal_to_own_host(httpd_req_t *r, const char *path);
 void sf_photo_web_register(httpd_handle_t server);
 /* Birthdays page (/birthdays and its API): people, photos, owner and owner's message. */
 void sf_birthday_web_register(httpd_handle_t server);
+/* Firmware update page (/update): install a signed SkyFrame.bin from a browser. */
+void sf_update_web_register(httpd_handle_t server);

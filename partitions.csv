@@ -1,4 +1,8 @@
-# SkyFrame firmware on ESP32-S3 with 16 MB flash
-# Name, Type, SubType, Offset, Size, Flags
-nvs,      data, nvs,      0x9000, 0x6000,
-factory,  app,  factory,  0x10000, 6M,
+# SkyFrame firmware on ESP32-S3 with 16 MB flash: two firmware slots for over-the-air updates.
+# nvs keeps its original place and size, so saved settings survive the change to this layout.
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   0x6000,
+otadata,  data, ota,      0xF000,   0x2000,
+ota_0,    app,  ota_0,    0x20000,  6M,
+ota_1,    app,  ota_1,    0x620000, 6M,
+coredump, data, coredump, 0xC20000, 256K,

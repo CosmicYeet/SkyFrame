@@ -74,5 +74,10 @@ esp_err_t sf_net_get_wx_alerts(double lat, double lon, sf_wx_alerts_t *out);
 /* "2026-11-23T18:45:00-05:00" -> Unix time, plus the local date and minute it names. */
 bool sf_parse_iso_time(const char *s, int64_t *utc, int *local_date, int *local_minute);
 
+/* Exclusive use of the network for a long transfer (the firmware updater): only one TLS
+   session runs at a time, because internal RAM is short. Other fetches wait meanwhile. */
+bool sf_net_lock(uint32_t wait_ms);
+void sf_net_unlock(void);
+
 /* Download an HTTPS resource into a PSRAM buffer the caller frees. */
 esp_err_t sf_net_get_bytes(const char *url, size_t max_bytes, uint8_t **data, size_t *len);

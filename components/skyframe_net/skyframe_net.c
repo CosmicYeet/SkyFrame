@@ -46,6 +46,13 @@ static esp_err_t fetch_ex(const char *url,size_t max_payload,reply_t *reply,bool
  return rc;
 }
 static esp_err_t fetch(const char *url,size_t max_payload,reply_t *reply){return fetch_ex(url,max_payload,reply,false);}
+bool sf_net_lock(uint32_t wait_ms){
+ taskENTER_CRITICAL(&fetch_lock_init);
+ if(!fetch_lock)fetch_lock=xSemaphoreCreateMutexStatic(&fetch_lock_buf);
+ taskEXIT_CRITICAL(&fetch_lock_init);
+ return xSemaphoreTake(fetch_lock,pdMS_TO_TICKS(wait_ms))==pdTRUE;
+}
+void sf_net_unlock(void){if(fetch_lock)xSemaphoreGive(fetch_lock);}
 /* cJSON makes hundreds of small allocations per weather reply. Below 16 KB, malloc() uses
    scarce internal RAM first (needed by Wi-Fi and TLS), so give cJSON PSRAM instead. */
 static void *json_alloc(size_t n){return heap_caps_malloc_prefer(n,2,MALLOC_CAP_SPIRAM,MALLOC_CAP_DEFAULT);}

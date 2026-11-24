@@ -82,7 +82,7 @@ A banner with a pulse around the rim pops up over any screen for **emergencies, 
 
 **Polish:** every screen change has its own animation (the radar's last sweep wipes it away, a jet flies across into Today's sky, the verse opens like a book, photos turn in like a page, birthdays open with confetti), and a startup screen shows the radar logo and version while it joins Wi-Fi. Animations can be turned off.
 
-**Around the clock:** dims from sunset and drops to a soft glow overnight (a touch brightens it). Joins the strongest of up to five saved Wi-Fi networks, reconnects on its own, and a watchdog restarts it if it ever freezes.
+**Around the clock:** dims from sunset and drops to a soft glow overnight (a touch brightens it). Joins the strongest of up to five saved Wi-Fi networks, reconnects on its own, and a watchdog restarts it if it ever freezes. It **updates itself overnight** from signed releases, and goes back to the previous version on its own if a new one doesn't start properly.
 
 ## Hardware
 
@@ -100,6 +100,13 @@ A banner with a pulse around the rim pops up over any screen for **emergencies, 
 ```powershell
 idf.py set-target esp32s3      # first time only
 idf.py -p COM4 flash monitor   # the COM port of the board's "UART" USB-C port
+```
+
+Builds are signed, so updates can be checked: create a signing key once, **next to** the project
+folder (never inside it), and keep a backup. Updates can only be signed with this key.
+
+```powershell
+espsecure generate-signing-key --version 2 --scheme rsa3072 ..\SkyFrame-signing-key.pem
 ```
 
 The first build downloads LVGL, esp_jpeg, cJSON, mDNS and TinyUSB through the component manager. Quit the monitor with `Ctrl+]` before flashing again.
@@ -168,6 +175,7 @@ On the home Wi-Fi, open **http://skyframe.local** (or the IP address shown on th
 | **Settings** `/` | Wi-Fi networks (up to five; the strongest one in range is used), radar center and radius, how long each screen stays up (verse and Today's sky can be turned off), page animations, night hours, and sighting alerts (emergencies, VIP, military, planes overhead, and a list of aircraft types such as `B74*, A388`) |
 | **Photos** `/photos` | Add photos from a phone or computer (rotated and cropped in the browser), remove photos |
 | **Birthdays** `/birthdays` | Add or remove people, set photos, mark the owner and write their birthday message |
+| **Firmware update** `/update` | Install a signed `SkyFrame.bin` from a computer on the same Wi-Fi |
 
 The settings screen on the device shows a QR code that opens these pages. If your phone isn't on the same Wi-Fi, *Other Wi-Fi* shows a code that joins SkyFrame's own network instead.
 
@@ -211,11 +219,36 @@ Hold any screen for 5 s to open settings, then hold the settings screen's backgr
 | Weather alert | A sample Severe Thunderstorm Warning and Flood Watch; tap the card | 45 s |
 | Sighting alert | An Air Force One banner over the weather; tap it for the radar | 25 s |
 | Overhead now | A sample "Overhead now" card | 12 s |
+| Check for updates | Checks for a newer version now and installs it (progress under **System**) | |
 | Restart | Restarts SkyFrame | |
 
-The **System** panel shows CPU load per core, free memory, chip temperature, battery voltage, microSD space, Wi-Fi signal and channel, IP address, uptime, start count and the reason for the last restart. Tap the yellow **TEST** banner to stop a test early. Nothing in test mode is saved.
+The **System** panel shows CPU load per core, free memory, chip temperature, battery voltage, microSD space, Wi-Fi signal and channel, IP address, uptime, start count, the reason for the last restart, the last saved crash, and the update status. Tap the yellow **TEST** banner to stop a test early. Nothing in test mode is saved.
 
 </details>
+
+## Updates
+
+SkyFrame updates itself from this repository's [GitHub releases](../../releases):
+
+- Every night in the 3 AM hour it reads `latest.json` from the newest release. If it names a
+  newer version, SkyFrame downloads `SkyFrame.bin` into its second firmware slot, checks the
+  image and its **signature** (only firmware signed with SkyFrame's key is accepted), and
+  restarts into it.
+- The new version must **prove itself**: join Wi-Fi and run for a minute. If it crashes or
+  freezes first, the bootloader starts the previous version again, and the failed version is
+  never offered again. Settings and the microSD card are untouched.
+- The next time the screen is free it shows **"Updated to v…"** with the release notes.
+- Test mode's **Check for updates** does the same on demand; **http://skyframe.local/update**
+  installs a build from a computer; USB flashing always works.
+
+Publishing a release (tests, simulator, signed build, tag and GitHub release in one go):
+
+```powershell
+.\tools\release.ps1 0.5.1 "Smoother radar and a new Today's sky"
+```
+
+The flash is split into two 6 MB firmware slots plus a crash-report area (`partitions.csv`).
+Changing that layout can only be installed over USB; the settings area never moves.
 
 ## PC simulator
 
@@ -255,11 +288,13 @@ GitHub shows both as interactive 3D models: open a file to rotate it.
 | `components/skyframe_net` | HTTPS: adsb.fi, Open-Meteo, National Weather Service, adsbdb, BibleGateway, photo downloads |
 | `components/skyframe_portal`, `skyframe_config` | Wi-Fi, web pages, settings in NVS |
 | `components/skyframe_storage` | microSD ownership and USB mass storage |
+| `components/skyframe_update` | Over-the-air updates, rollback, crash reports |
 | `components/skyframe_photoplayer`, `skyframe_jpeg` | Background photo decoding and scaling |
-| `tools/` | Photo preparation scripts, icon and banner generators |
+| `tools/` | Photo preparation scripts, icon and banner generators, `release.ps1` |
 | `hardware/` | 3D-printable enclosure (orb and back plate) |
 | `sim/` | PC simulator: the firmware in a window, with live data (`sim\run.ps1`) |
 | `tests/` | Host unit tests for the portable code (`sh tests/run_tests.sh`, needs a C compiler) |
+| `CLAUDE.md` | How the project is built, tested and released (read by Claude Code) |
 
 </details>
 

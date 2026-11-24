@@ -70,7 +70,7 @@ void sf_screens_set_birthday_dismiss_cb(void (*cb)(void));
 typedef enum {
     SF_TEST_OWNER_BIRTHDAY, SF_TEST_FAMILY_BIRTHDAY, SF_TEST_TRAFFIC, SF_TEST_NIGHT,
     SF_TEST_TOUR, SF_TEST_USB, SF_TEST_WIFI, SF_TEST_WX_ALERT, SF_TEST_SIGHTING, SF_TEST_TODAY,
-    SF_TEST_OVERHEAD, SF_TEST_SPLASH,
+    SF_TEST_OVERHEAD, SF_TEST_SPLASH, SF_TEST_UPDATE,   /* "Check for updates": not a timed test */
     SF_TEST_RESTART, SF_TEST_EXIT, SF_TEST_COUNT,
     SF_TEST_STOP,         /* not a menu item: the badge was tapped, back to the menu */
     SF_TEST_NEXT          /* not a menu item: "Next birthday" during the family birthday test */
@@ -93,6 +93,8 @@ typedef struct {
     const char *reset_reason;      /* why the last restart happened, in plain words */
     char version[64];              /* header: "SkyFrame v0.4  *  build 6770179  *  Nov 23 2026" */
     char built[32];                /* "Nov 23 2026 14:02:11" */
+    char update[64];               /* updates: "Up to date (v0.5.0)", "Installing v0.5.1... 40%" */
+    char crash[48];                /* last saved crash, "" if none */
 } sf_system_stats_t;
 void sf_test_menu_set_stats(const sf_system_stats_t *stats);
 void sf_screens_set_test_cb(void (*enter)(void), void (*action)(sf_test_action_t action));
@@ -144,7 +146,9 @@ void sf_today_show(bool show);
    itself after `seconds`. NULL hides it at once. Tapping it calls the tap callback. */
 /* Least to most important. Overhead: a plane passing within about a mile (shorter, one pulse). */
 typedef enum { SF_SIGHTING_OVERHEAD, SF_SIGHTING_TYPE, SF_SIGHTING_MILITARY, SF_SIGHTING_VIP,
-               SF_SIGHTING_EMERGENCY } sf_sighting_kind_t;
+               SF_SIGHTING_EMERGENCY,
+               SF_SIGHTING_NEWS      /* not a sighting: "Updated to v0.5.1" after an update */
+             } sf_sighting_kind_t;
 typedef struct {
     sf_sighting_kind_t kind;
     const char *title;      /* "AIR FORCE ONE" */

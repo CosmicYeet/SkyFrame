@@ -50,9 +50,9 @@
 #include "skyframe_nvs.h"
 #include "skyframe_wifi.h"
 #include "skyframe_portal.h"
+#include "skyframe_update.h"
 
 #define TAG "SkyFrame"
-#define SKYFRAME_VERSION "v0.4"   /* human version; the exact build comes from git (app description) */
 #define AIRCRAFT_POLL_MS 20000U
 #define WEATHER_POLL_MS 900000U
 #define GUI_TICK_MS 5U           /* short enough for LVGL to draw on every panel refresh */
@@ -477,6 +477,7 @@ static void test_action(sf_test_action_t a) {
         if(test_is(SF_TEST_FAMILY_BIRTHDAY)) { birthdays_preview_family(++bday_preview_index); test_started=now_ms(); }
         return;
     case SF_TEST_RESTART: sf_planned_restart(); return;
+    case SF_TEST_UPDATE: sf_update_check_now(true); return;   /* progress shows under System */
     case SF_TEST_OWNER_BIRTHDAY: birthdays_preview(true); break;
     case SF_TEST_FAMILY_BIRTHDAY: bday_preview_index=0; birthdays_preview_family(0); break;
     default: break;
@@ -622,9 +623,9 @@ static void log_resources(uint32_t t) {
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)/1024),chip_celsius(),
              (unsigned)active_screen<SF_SCREEN_COUNT?names[active_screen]:"?");
 }
-/* "SkyFrame v0.4  *  build 6770179  *  Nov 23 2026" and "Nov 23 2026 14:02:11". The build
-   id is git describe ("v0.4-3-g6770179-dirty" -> "6770179-dirty"); __DATE__ pads single-digit
-   days with a space, squeezed out here. */
+/* "SkyFrame v0.5.0  *  Nov 23 2026" and "Nov 23 2026 14:02:11". The version comes from
+   version.txt (the app description); __DATE__ pads single-digit days with a space, squeezed out
+   here. */
 static void squeeze_spaces(char *s) {
     char *o=s;
     for(const char *p=s;*p;p++) if(!(*p==' ' && o>s && o[-1]==' ')) *o++=*p;
@@ -632,15 +633,15 @@ static void squeeze_spaces(char *s) {
 }
 static void build_name(char *version, size_t vcap, char *built, size_t bcap) {
     const esp_app_desc_t *d=esp_app_get_description();
-    const char *id=strstr(d->version,"-g");
-    id=id?id+2:d->version;
     char date[16];
     snprintf(date,sizeof(date),"%s",d->date);
     squeeze_spaces(date);
-    snprintf(version,vcap,"SkyFrame " SKYFRAME_VERSION "  \xE2\x80\xA2  build %.14s  \xE2\x80\xA2  %.11s",id,date);
+    snprintf(version,vcap,"SkyFrame v%.16s  \xE2\x80\xA2  %.11s",d->version,date);
     snprintf(built,bcap,"%s %.8s",date,d->time);
 }
 /* Everything the test menu's System panel shows. Called once a second. */
+#define UPDATE_HOUR 3                   /* nightly update check: 3-4 AM local time */
+static char crash_text[48];             /* the last saved crash (read once at boot) */
 static void system_stats(uint32_t t, sf_system_stats_t *s) {
     static cpu_sampler_t cs;
     memset(s,0,sizeof(*s));
@@ -661,6 +662,12 @@ static void system_stats(uint32_t t, sf_system_stats_t *s) {
     s->boots=boot_count;
     s->reset_reason=reset_reason_text();
     build_name(s->version,sizeof(s->version),s->built,sizeof(s->built));
+    sf_update_status_t us;
+    sf_update_status(&us);
+    if(sf_update_pending_verify()) snprintf(s->update,sizeof(s->update),"v%s: new, settling in",sf_update_version());
+    else if(us.text[0]) snprintf(s->update,sizeof(s->update),"%s",us.text);
+    else snprintf(s->update,sizeof(s->update),"Checked nightly at %d AM",UPDATE_HOUR);
+    snprintf(s->crash,sizeof(s->crash),"%s",crash_text);
 }
 
 /* Runs the menu / current test. True when the test decides which screen shows. */
@@ -929,6 +936,45 @@ static void tick_splash(uint32_t t) {
         return;
     }
     sf_splash_status(connected?"Connected":up<600?"Starting...":"Joining Wi-Fi...");
+}
+
+/* ---- Over-the-air updates ---------------------------------------------------------
+   A newly installed version keeps itself once it has been on Wi-Fi for a minute; one that
+   never joins within 15 minutes goes back to the previous version (a crash or freeze before
+   that is caught by the bootloader). Updates are checked in the 3 AM hour, while dimmed. */
+static int local_ymd(const struct tm *lt);
+#define UPDATE_PROVE_MS 60000U
+#define UPDATE_GIVE_UP_MS (15U*60000U)
+static void tick_updates(uint32_t t) {
+    static uint32_t last, wifi_since;
+    static int checked_day;
+    static bool news_done;
+    if(last && (uint32_t)(t-last)<1000) return;
+    last=t?t:1;
+    bool online=sf_wifi_is_connected();
+    if(!online) wifi_since=0;
+    else if(!wifi_since) wifi_since=t?t:1;
+    if(sf_update_pending_verify()) {
+        if(online && (uint32_t)(t-wifi_since)>=UPDATE_PROVE_MS) sf_update_confirm();
+        else if(!online && t>=UPDATE_GIVE_UP_MS) sf_update_reject();
+        return;
+    }
+    /* What's new, once, when nothing covers the screens. */
+    if(!news_done && !boot_splash && !sf_splash_visible() && !setup_mode && !setup_up && !test_mode && !sf_sighting_visible()) {
+        news_done=true;
+        char v[16], notes[160], title[32];
+        if(sf_update_take_news(v,sizeof(v),notes,sizeof(notes))) {
+            snprintf(title,sizeof(title),"UPDATED TO v%.16s",v);
+            sf_sighting_view_t view={.kind=SF_SIGHTING_NEWS,.title=title,.name=notes[0]?notes:"A new version of SkyFrame",
+                                     .detail="Installed by itself, nothing to do",.seconds=15};
+            sf_sighting_show(&view);
+        }
+    }
+    struct tm lt;
+    if(online && !test_mode && !setup_mode && local_time(&lt) && lt.tm_hour==UPDATE_HOUR) {
+        int day=local_ymd(&lt);
+        if(day!=checked_day) { checked_day=day; ESP_LOGI(TAG,"Nightly update check"); sf_update_check_now(true); }
+    }
 }
 
 static void update_clock_and_backlight(uint32_t t) {
@@ -1371,6 +1417,8 @@ static void sighting_tapped(void) {
 void app_main(void) {
     /* NVS is initialized before Wi-Fi; no personal details built into firmware. */
     ESP_ERROR_CHECK(sf_config_nvs_init());
+    sf_update_init(sf_planned_restart);   /* rollback bookkeeping and the crash report, first thing */
+    sf_update_crash_summary(crash_text,sizeof(crash_text));
     if(sf_config_nvs_load(&cfg)!=ESP_OK) {sf_config_defaults(&cfg);setup_mode=true;}
     else setup_mode=!cfg.wifi[0].ssid[0];
 
@@ -1432,7 +1480,7 @@ void app_main(void) {
         xTaskCreatePinnedToCore(today_photo_worker,"today_photo",6144,NULL,2,&today_photo_task,1);
     }
 
-    ESP_LOGI(TAG,"SkyFrame " SKYFRAME_VERSION " booted: radar=%u mi, trigger=%u mi",cfg.display_miles,cfg.activation_miles);
+    ESP_LOGI(TAG,"SkyFrame v%s booted: radar=%u mi, trigger=%u mi",sf_update_version(),cfg.display_miles,cfg.activation_miles);
     last_motion_ms=now_ms();
     /* Unattended recovery: if this loop ever stalls, the task watchdog restarts the device. */
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
@@ -1501,6 +1549,7 @@ void app_main(void) {
         sf_usb_show(sf_sd_usb_active()||test_is(SF_TEST_USB));
         update_clock_and_backlight(t);
         tick_splash(t);
+        tick_updates(t);
         tick_wx_alerts(t);
         tick_today(t);
         /* Sighting banners wait while something covers the screens. */

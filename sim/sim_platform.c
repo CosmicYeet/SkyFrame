@@ -50,7 +50,7 @@ esp_reset_reason_t esp_reset_reason(void) { return ESP_RST_POWERON; }
 void esp_restart(void) { sim_log('I', TAG, "Restart requested: closing the simulator"); exit(0); }
 uint32_t esp_random(void) { return ((uint32_t)rand() << 16) ^ (uint32_t)rand() ^ (uint32_t)esp_timer_get_time(); }
 const esp_app_desc_t *esp_app_get_description(void) {
-    static esp_app_desc_t d = { .version = "v0.4-sim-gsimulator", .project_name = "SkyFrame",
+    static esp_app_desc_t d = { .version = SIM_VERSION, .project_name = "SkyFrame",
                                 .time = __TIME__, .date = __DATE__, .idf_ver = "simulator" };
     return &d;
 }

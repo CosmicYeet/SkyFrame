@@ -1345,7 +1345,7 @@ void sf_setup_show(bool show,const sf_setup_info_t *info){
 #define LIST_W 340
 enum { TILE_CPU, TILE_RAM, TILE_TEMP, TILE_COUNT };
 enum { ROW_RAM_LOW, ROW_BLOCK, ROW_PSRAM, ROW_SD, ROW_BATTERY, ROW_WIFI, ROW_IP, ROW_UPTIME,
-       ROW_BOOTS, ROW_RESET, ROW_CLOCK, ROW_VERSION, ROW_COUNT };
+       ROW_BOOTS, ROW_RESET, ROW_CRASH, ROW_CLOCK, ROW_VERSION, ROW_UPDATE, ROW_COUNT };
 enum { WEB_SETTINGS, WEB_PHOTOS, WEB_BIRTHDAYS, WEB_IP, WEB_COUNT };
 static lv_obj_t *test_root, *test_list, *test_badge, *web_note, *test_version;
 static lv_obj_t *tile_value[TILE_COUNT], *row_value[ROW_COUNT], *web_row[WEB_COUNT], *web_ip;
@@ -1464,7 +1464,7 @@ static void build_test_menu(void){
         [ROW_RAM_LOW]="Lowest free RAM",[ROW_BLOCK]="Largest RAM block",[ROW_PSRAM]="PSRAM",
         [ROW_SD]="microSD",[ROW_BATTERY]="Battery",[ROW_WIFI]="Wi-Fi",[ROW_IP]="IP address",
         [ROW_UPTIME]="Running for",[ROW_BOOTS]="Times started",[ROW_RESET]="Last restart",
-        [ROW_CLOCK]="Processor",[ROW_VERSION]="Built"};
+        [ROW_CRASH]="Last crash",[ROW_CLOCK]="Processor",[ROW_VERSION]="Built",[ROW_UPDATE]="Updates"};
     for(int i=0;i<ROW_COUNT;i++)row_value[i]=stat_row(c,row_names[i],WHITE);
 
     section(test_list,"WEB PAGES",ACCENT_GREEN);
@@ -1483,6 +1483,7 @@ static void build_test_menu(void){
     lv_obj_set_style_text_align(web_note,LV_TEXT_ALIGN_CENTER,0);
 
     section(test_list,"DEVICE",lv_color_hex(0xFF8A80));
+    test_button(test_list,SF_TEST_UPDATE,LV_SYMBOL_DOWNLOAD,"Check for updates",ACCENT_GREEN,ACCENT_GREEN,true);
     test_button(test_list,SF_TEST_RESTART,LV_SYMBOL_REFRESH,"Restart SkyFrame",lv_color_hex(0xFF8A80),
                 lv_color_hex(0xFF6B6B),true);
 
@@ -1536,6 +1537,8 @@ static void apply_stats(void){
     snprintf(b,sizeof(b),"%u MHz  \xE2\x80\xA2  2 cores",s->cpu_mhz);
     set_text(row_value[ROW_CLOCK],b);
     set_text(row_value[ROW_VERSION],s->built[0]?s->built:"--");
+    set_text(row_value[ROW_UPDATE],s->update[0]?s->update:"--");
+    set_text(row_value[ROW_CRASH],s->crash[0]?s->crash:"None saved");
     set_text(test_version,s->version);
 
     /* Web pages: by name and address on the home Wi-Fi, otherwise how to reach setup. */
@@ -1762,7 +1765,7 @@ void sf_today_show(bool show){
 /* ---- Sighting alert ---------------------------------------------------------
    On the top layer, so it shows over whichever screen is up. The rim ring pulses three
    times as it arrives; the banner's glow keeps breathing until it leaves. */
-static const uint32_t sighting_color[]={0x7CF5A3,0x6EDCFF,0xFFC857,0xC89BFF,0xFF5A5A};   /* overhead, type, military, VIP, emergency */
+static const uint32_t sighting_color[]={0x7CF5A3,0x6EDCFF,0xFFC857,0xC89BFF,0xFF5A5A,0x6EB6FF};   /* overhead, type, military, VIP, emergency, news */
 static lv_obj_t *sight_ring, *sight_banner, *sight_title, *sight_name, *sight_detail;
 static lv_timer_t *sight_timer;
 static void (*on_sighting_tap)(void);
@@ -1849,14 +1852,16 @@ void sf_sighting_show(const sf_sighting_view_t *v){
     if(!v){sighting_hide(false);return;}
     if(!sight_banner)build_sighting();
     sighting_hide(false);
-    lv_color_t c=lv_color_hex(sighting_color[v->kind<=SF_SIGHTING_EMERGENCY?v->kind:0]);
+    lv_color_t c=lv_color_hex(sighting_color[v->kind<=SF_SIGHTING_NEWS?v->kind:0]);
     char b[96];
-    snprintf(b,sizeof(b),"%s  %s",v->kind==SF_SIGHTING_EMERGENCY?LV_SYMBOL_WARNING:v->kind==SF_SIGHTING_OVERHEAD?LV_SYMBOL_UP:LV_SYMBOL_EYE_OPEN,
+    snprintf(b,sizeof(b),"%s  %s",v->kind==SF_SIGHTING_EMERGENCY?LV_SYMBOL_WARNING:v->kind==SF_SIGHTING_OVERHEAD?LV_SYMBOL_UP:
+             v->kind==SF_SIGHTING_NEWS?LV_SYMBOL_DOWNLOAD:LV_SYMBOL_EYE_OPEN,
              v->title?v->title:"");
     lv_label_set_text(sight_title,b);
     lv_obj_set_style_text_color(sight_title,c,0);
     lv_label_set_text(sight_name,v->name?v->name:"");
-    snprintf(b,sizeof(b),"%s%sTap to see it on the radar",v->detail?v->detail:"",v->detail&&v->detail[0]?"  \xE2\x80\xA2  ":"");
+    if(v->kind==SF_SIGHTING_NEWS)snprintf(b,sizeof(b),"%s",v->detail?v->detail:"");
+    else snprintf(b,sizeof(b),"%s%sTap to see it on the radar",v->detail?v->detail:"",v->detail&&v->detail[0]?"  \xE2\x80\xA2  ":"");
     lv_label_set_text(sight_detail,b);
     lv_obj_set_style_border_color(sight_banner,c,0);
     lv_obj_set_style_shadow_color(sight_banner,c,0);
@@ -1879,7 +1884,7 @@ void sf_sighting_show(const sf_sighting_view_t *v){
     lv_anim_init(&a);
     lv_anim_set_var(&a,sight_ring);lv_anim_set_exec_cb(&a,anim_ring_opa);
     lv_anim_set_values(&a,LV_OPA_TRANSP,LV_OPA_90);lv_anim_set_time(&a,450);lv_anim_set_playback_time(&a,450);
-    lv_anim_set_repeat_count(&a,v->kind==SF_SIGHTING_OVERHEAD?1:3);lv_anim_set_ready_cb(&a,hide_when_done);
+    lv_anim_set_repeat_count(&a,v->kind==SF_SIGHTING_OVERHEAD||v->kind==SF_SIGHTING_NEWS?1:3);lv_anim_set_ready_cb(&a,hide_when_done);
     lv_anim_start(&a);
     sight_timer=lv_timer_create(sighting_timeout,(v->seconds?v->seconds:20)*1000u,NULL);
     lv_timer_set_repeat_count(sight_timer,1);
