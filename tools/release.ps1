@@ -15,7 +15,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Version,
     [Parameter(Mandatory = $true)][string]$Notes
 )
-$ErrorActionPreference = "Stop"
+# Tools write progress to stderr: judge each step by its exit code, not by stderr output.
+$ErrorActionPreference = "Continue"
 $repo = "CosmicYeet/SkyFrame"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -41,6 +42,7 @@ Check (Get-Command gh -ErrorAction SilentlyContinue) "GitHub CLI (gh) not found"
 Step "Version $current -> $Version"
 Utf8File (Join-Path $root "version.txt") "$Version`n"
 
+$cleanPath = $env:PATH
 try {
     Step "Unit tests"
     $env:MSYSTEM = "UCRT64"
@@ -53,6 +55,9 @@ try {
     if (-not (Test-Path "sim\out\build.ninja")) { & cmake -S sim -B sim\out -G Ninja -DCMAKE_BUILD_TYPE=Release | Out-Null }
     & cmake --build sim\out
     Check ($LASTEXITCODE -eq 0) "Simulator build failed"
+    # ESP-IDF refuses to run inside an MSYS2 environment: put the shell back as it was.
+    Remove-Item Env:MSYSTEM -ErrorAction SilentlyContinue
+    $env:PATH = $cleanPath
 
     Step "Firmware build (signed)"
     . C:\Espressif\tools\Microsoft.v6.1.1.PowerShell_profile.ps1 *> $null
@@ -81,10 +86,14 @@ Step "Commit, tag, push"
 if (git status --porcelain version.txt) {   # unchanged for a first release of the current version
     git add version.txt
     git commit --quiet -m "Release v$Version" -m $Notes
+    Check ($LASTEXITCODE -eq 0) "Commit failed"
 }
 git tag -a "v$Version" -m "SkyFrame v$Version"
+Check ($LASTEXITCODE -eq 0) "Tagging failed"
 git push --quiet origin main
+Check ($LASTEXITCODE -eq 0) "Push failed"
 git push --quiet origin "v$Version"
+Check ($LASTEXITCODE -eq 0) "Pushing the tag failed"
 
 Step "GitHub release"
 gh release create "v$Version" $bin $manifest --repo $repo --title "SkyFrame v$Version" --notes $Notes --latest
