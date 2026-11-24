@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400">
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d2a4a"/><stop offset="1" stop-color="#030b17"/></linearGradient>
+<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="1015" cy="200" r="239"><stop offset="0" stop-color="#1b5c86" stop-opacity=".55"/><stop offset="1" stop-color="#1b5c86" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1280" height="400" rx="28" fill="url(#sky)"/>
+<rect width="1280" height="400" rx="28" fill="url(#glow)"/>
+<path d="M1015 200L1175.8 162.9A165 165 0 0 1 1178.4 177.0Z" fill="#38f0a8" fill-opacity="0.620"/>
+<path d="M1015 200L1171.9 149.0A165 165 0 0 1 1175.8 162.9Z" fill="#38f0a8" fill-opacity="0.577"/>
+<path d="M1015 200L1166.9 135.5A165 165 0 0 1 1171.9 149.0Z" fill="#38f0a8" fill-opacity="0.536"/>
+<path d="M1015 200L1160.7 122.5A165 165 0 0 1 1166.9 135.5Z" fill="#38f0a8" fill-opacity="0.496"/>
+<path d="M1015 200L1153.4 110.1A165 165 0 0 1 1160.7 122.5Z" fill="#38f0a8" fill-opacity="0.457"/>
+<path d="M1015 200L1145.0 98.4A165 165 0 0 1 1153.4 110.1Z" fill="#38f0a8" fill-opacity="0.419"/>
+<path d="M1015 200L1135.7 87.5A165 165 0 0 1 1145.0 98.4Z" fill="#38f0a8" fill-opacity="0.382"/>
+<path d="M1015 200L1125.4 77.4A165 165 0 0 1 1135.7 87.5Z" fill="#38f0a8" fill-opacity="0.347"/>
+<path d="M1015 200L1114.3 68.2A165 165 0 0 1 1125.4 77.4Z" fill="#38f0a8" fill-opacity="0.313"/>
+<path d="M1015 200L1102.4 60.1A165 165 0 0 1 1114.3 68.2Z" fill="#38f0a8" fill-opacity="0.280"/>
+<path d="M1015 200L1089.9 53.0A165 165 0 0 1 1102.4 60.1Z" fill="#38f0a8" fill-opacity="0.249"/>
+<path d="M1015 200L1076.8 47.0A165 165 0 0 1 1089.9 53.0Z" fill="#38f0a8" fill-opacity="0.219"/>
+<path d="M1015 200L1063.2 42.2A165 165 0 0 1 1076.8 47.0Z" fill="#38f0a8" fill-opacity="0.190"/>
+<path d="M1015 200L1049.3 38.6A165 165 0 0 1 1063.2 42.2Z" fill="#38f0a8" fill-opacity="0.164"/>
+<path d="M1015 200L1035.1 36.2A165 165 0 0 1 1049.3 38.6Z" fill="#38f0a8" fill-opacity="0.138"/>
+<path d="M1015 200L1020.8 35.1A165 165 0 0 1 1035.1 36.2Z" fill="#38f0a8" fill-opacity="0.114"/>
+<path d="M1015 200L1006.4 35.2A165 165 0 0 1 1020.8 35.1Z" fill="#38f0a8" fill-opacity="0.092"/>
+<path d="M1015 200L992.0 36.6A165 165 0 0 1 1006.4 35.2Z" fill="#38f0a8" fill-opacity="0.072"/>
+<path d="M1015 200L977.9 39.2A165 165 0 0 1 992.0 36.6Z" fill="#38f0a8" fill-opacity="0.054"/>
+<path d="M1015 200L964.0 43.1A165 165 0 0 1 977.9 39.2Z" fill="#38f0a8" fill-opacity="0.038"/>
+<path d="M1015 200L950.5 48.1A165 165 0 0 1 964.0 43.1Z" fill="#38f0a8" fill-opacity="0.024"/>
+<path d="M1015 200L937.5 54.3A165 165 0 0 1 950.5 48.1Z" fill="#38f0a8" fill-opacity="0.012"/>
+<path d="M1015 200L925.1 61.6A165 165 0 0 1 937.5 54.3Z" fill="#38f0a8" fill-opacity="0.004"/>
+<line x1="1015" y1="200" x2="1178.4" y2="177.0" stroke="#38f0a8" stroke-width="3" stroke-linecap="round"/>
+<circle cx="1015" cy="200" r="165.0" fill="none" stroke="#5fd4ff" stroke-width="4" stroke-opacity="0.8"/>
+<circle cx="1015" cy="200" r="110.0" fill="none" stroke="#5fd4ff" stroke-width="2" stroke-opacity="0.38"/>
+<circle cx="1015" cy="200" r="55.0" fill="none" stroke="#5fd4ff" stroke-width="2" stroke-opacity="0.32"/>
+<path d="M850 200H1180M1015 35V365" stroke="#5fd4ff" stroke-opacity=".16" stroke-width="1.5"/>
+<circle cx="1015" cy="200" r="6" fill="#38f0a8"/>
+<circle cx="980.0" cy="296.1" r="5" fill="#7cf5a3" fill-opacity=".85"/>
+<circle cx="909.6" cy="126.2" r="5" fill="#7cf5a3" fill-opacity=".85"/>
+<circle cx="1057.4" cy="250.6" r="5" fill="#7cf5a3" fill-opacity=".85"/>
+<circle cx="875.5" cy="250.8" r="5" fill="#7cf5a3" fill-opacity=".85"/>
+<path d="M1136.9 96.1L1136.3 105.5L1129.4 116.2L1095.4 150.2L1121.8 229.5L1113.0 238.3L1071.5 174.1L1041.5 202.0L1043.8 232.0L1036.2 239.6L1021.1 216.9L1014.8 218.2L1016.1 211.9L993.4 196.8L1001.0 189.2L1031.0 191.5L1058.9 161.5L994.7 120.0L1003.5 111.2L1082.8 137.6L1116.8 103.6L1127.5 96.7Z" fill="#000" fill-opacity=".35"/>
+<path d="M1129.9 85.1L1129.3 94.5L1122.4 105.2L1088.4 139.2L1114.8 218.5L1106.0 227.3L1064.5 163.1L1034.5 191.0L1036.8 221.0L1029.2 228.6L1014.1 205.9L1007.8 207.2L1009.1 200.9L986.4 185.8L994.0 178.2L1024.0 180.5L1051.9 150.5L987.7 109.0L996.5 100.2L1075.8 126.6L1109.8 92.6L1120.5 85.7Z" fill="#fff"/>
+<text x="92" y="186" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="104" font-weight="700" fill="#ffffff" letter-spacing="-2">SkyFrame</text>
+<text x="96" y="244" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="30" fill="#b8d7ec">Live air-traffic radar, weather &amp; family photos</text>
+<text x="96" y="290" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="21" fill="#5fd4ff" letter-spacing="1">ESP32-S3  •  2.8" round touch display  •  ESP-IDF + LVGL</text>
+</svg>

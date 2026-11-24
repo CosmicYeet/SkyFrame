@@ -1,0 +1,70 @@
+CONFIG_LV_MEM_CUSTOM=y
+CONFIG_LV_MEMCPY_MEMSET_STD=y
+CONFIG_LV_USE_USER_DATA=y
+CONFIG_LV_USE_CHART=y
+CONFIG_LV_USE_PERF_MONITOR=n
+# Redraw at about the panel's ~65 Hz refresh so the radar sweep turns smoothly; a 1 ms
+# FreeRTOS tick keeps the UI loop's timing that fine.
+CONFIG_LV_DISP_DEF_REFR_PERIOD=15
+CONFIG_FREERTOS_HZ=1000
+
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+
+# ESP32-S3: 240 MHz, 8 MB octal PSRAM at 80 MHz. Code and constants run from PSRAM, which
+# lets the panel's frame buffer (in PSRAM) be fetched at a higher pixel clock; 64-byte data
+# cache lines suit the large sequential frame-buffer copies.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+# SkyFrame LVGL: fonts and TLS for HTTPS APIs
+CONFIG_LV_FONT_MONTSERRAT_8=y
+CONFIG_LV_FONT_MONTSERRAT_12=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+CONFIG_LV_USE_QRCODE=y
+CONFIG_LV_USE_DEMO_WIDGETS=n
+CONFIG_LV_USE_DEMO_BENCHMARK=n
+CONFIG_LV_USE_DEMO_STRESS=n
+CONFIG_LV_USE_DEMO_MUSIC=n
+CONFIG_LV_USE_DEMO_KEYPAD_AND_ENCODER=n
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# TLS session buffers in PSRAM (internal RAM is too small for HTTPS + Wi-Fi + LCD),
+# released after the handshake. Wi-Fi/lwIP buffers may also use PSRAM.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# A browser on the web pages keeps up to ~7 connections open; with the web server's own and
+# mDNS, the default 10 left none for the HTTPS fetches (air traffic, weather).
+CONFIG_LWIP_MAX_SOCKETS=16
+# Network tasks run on CPU1; a TLS handshake there must not trip the idle watchdog.
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# Unattended recovery: a stalled UI loop (or starved CPU0) restarts the device.
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+
+# USB file transfer: the native USB port exposes the microSD card as a drive.
+# The secondary USB-Serial-JTAG console would share that USB PHY, so it is off;
+# the log stays on the UART port (CH343).
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_MSC_BUFSIZE=8192
+CONFIG_TINYUSB_DESC_MANUFACTURER_STRING="SkyFrame"
+CONFIG_TINYUSB_DESC_PRODUCT_STRING="SkyFrame"
+CONFIG_TINYUSB_DESC_MSC_STRING="SkyFrame SD card"
+
+# Extra stack for LVGL + SD JPEG decoding in main/UI task
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# Per-core CPU use on the test-mode screen (idle task run time).
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# Release build: LVGL drawing is much faster at -O2 than the debug default (-Og).
+CONFIG_COMPILER_OPTIMIZATION_PERF=y

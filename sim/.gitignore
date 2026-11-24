@@ -1,0 +1,3 @@
+out/
+sdcard/*
+!sdcard/README.txt

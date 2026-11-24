@@ -1,0 +1,13 @@
+# SkyFrame birthdays: copy this file to the microSD card as /birthdays.txt
+# One person per line:   Name, YYYY-MM-DD, photo file, owner
+#   - The birth year can be left off (MM-DD) if unknown; then no age is shown.
+#   - Photos go in the card's /birthdays folder (any .jpg; square ones look best).
+#   - "owner" marks the person this SkyFrame belongs to: they get the special birthday
+#     screen. Only one person can be the owner.
+#   - "message: ..." is the line shown on the owner's birthday screen.
+#   - Lines starting with # are ignored.
+
+message: With love from your family
+Alex, 1960-01-15, alex.jpg, owner
+# Jane Doe, 1972-04-03, jane.jpg
+# Sam, 05-21

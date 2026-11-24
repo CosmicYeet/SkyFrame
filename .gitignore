@@ -1,0 +1,12 @@
+# ESP-IDF build output and downloaded components (restored by the component manager)
+build/
+managed_components/
+sdkconfig.old
+
+# Editor / tool settings that hold machine-specific paths
+.vscode/
+.claude/
+
+# Python
+__pycache__/
+*.pyc

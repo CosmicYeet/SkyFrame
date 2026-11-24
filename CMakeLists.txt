@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+# LVGL tracks at most LV_INV_BUF_SIZE changed areas per frame and redraws the whole screen
+# when more arrive. Moving planes (about 4-13 areas each) plus the sweep overflow the
+# default 32, so allow more. Set for every component: lv_disp_t embeds arrays of this size.
+idf_build_set_property(COMPILE_DEFINITIONS "LV_INV_BUF_SIZE=128" APPEND)
+project(SkyFrame)

@@ -1,0 +1,13 @@
+menu "Waveshare LCD Configuration"
+config EXAMPLE_DOUBLE_FB
+    bool "Use double RGB frame buffer"
+    default n
+config EXAMPLE_USE_BOUNCE_BUFFER
+    bool "Use bounce buffer"
+    depends on !EXAMPLE_DOUBLE_FB
+    default y
+config EXAMPLE_AVOID_TEAR_EFFECT_WITH_SEM
+    bool "Avoid tearing using synchronization"
+    depends on !EXAMPLE_DOUBLE_FB
+    default y
+endmenu
