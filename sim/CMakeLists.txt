@@ -47,6 +47,7 @@ add_executable(skyframe_sim
   ${ROOT}/components/skyframe_engine/skyframe_engine.c
   ${ROOT}/components/skyframe_engine/skyframe_controller.c
   ${ROOT}/components/skyframe_engine/skyframe_today.c
+  ${ROOT}/components/skyframe_engine/skyframe_orbit.c
   ${ROOT}/components/skyframe_config/skyframe_config.c
   ${ROOT}/components/skyframe_net/skyframe_net.c
   ${ROOT}/components/skyframe_net/skyframe_urls.c

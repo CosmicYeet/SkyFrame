@@ -21,4 +21,4 @@ uint16_t *plane_library_load_type(const char *type_code);
 esp_err_t plane_library_save(const char *icao, const uint16_t *pixels);
 /* A type seen in traffic: when the card has no photo for it, list it in /planes/missing.txt
    ("TYPE<tab>description", once each) for tools/prepare_plane_photos.py --missing. */
-void plane_library_note_type(const char *type_code, const char *description);
+bool plane_library_note_type(const char *type_code, const char *description);   /* false: card busy, try later */

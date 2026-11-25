@@ -42,7 +42,11 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
     }
 #endif
     // pass the draw buffer to the driver
+    int64_t c0 = esp_timer_get_time();
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
+    frame_stats.copy_us += (uint64_t)(esp_timer_get_time() - c0);
+    frame_stats.areas++;
+    frame_stats.px += (uint32_t)((offsetx2 - offsetx1 + 1) * (offsety2 - offsety1 + 1));
 #if CONFIG_EXAMPLE_AVOID_TEAR_EFFECT_WITH_SEM
     if (lv_disp_flush_is_last(drv)) in_frame = false;
 #endif

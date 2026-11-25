@@ -39,6 +39,7 @@
 #include "skyframe_screens.h"
 #include "skyframe_photoplayer.h"
 #include "skyframe_jpeg.h"
+#include "skyframe_orbit.h"
 #include "skyframe_urls.h"
 #include "plane_library.h"
 #include "birthdays.h"
@@ -82,7 +83,7 @@
 #define SIGHTING_REPEAT_MS (6U*3600000U)   /* the same aircraft alerts again after 6 hours */
 
 typedef enum { MSG_TRAFFIC, MSG_WEATHER, MSG_INFO, MSG_PHOTO, MSG_VERSE, MSG_WX_ALERTS, MSG_TODAY_PHOTO,
-               MSG_SATELLITE } msg_kind_t;
+               MSG_SATELLITE, MSG_ISS } msg_kind_t;
 typedef struct {
     msg_kind_t type;
     union {
@@ -93,6 +94,7 @@ typedef struct {
         sf_wx_alerts_t alerts;
         /* pixels NULL: no photo. Ownership travels with the message. */
         struct { char icao[9]; uint16_t *pixels; } photo;
+        sf_pass_t iss;   /* the next visible space station pass (valid=false: none in a day) */
     } data;
 } app_msg_t;
 typedef struct { char icao[9], callsign[12], type_code[8]; } info_req_t;
@@ -153,21 +155,84 @@ static bool fetch_satellite(app_msg_t *msg, unsigned miles) {
 /* A new radius (pull-down preset, the range test): rescale the radar, set the activation
    radius, fetch traffic (and the satellite picture) for it now. */
 static void tick_radar_range(void) {
-    static unsigned shown;
-    unsigned miles=radar_miles();
-    if(miles==shown) return;
-    bool first=!shown;
-    shown=miles;
+    static unsigned shown, shown_act;
+    unsigned miles=radar_miles(), act=activation_miles();
+    if(miles==shown && act==shown_act) return;
+    bool first=!shown, rescale=miles!=shown;
+    shown=miles; shown_act=act;
     if(first) return;                              /* app_main set up the boot values */
+    sf_controller_set_activation(&ctrl,(float)act);
+    if(!rescale) return;                           /* e.g. the range test ended on the saved radius */
     skyframe_ui_set_radius((float)miles);
-    sf_controller_set_activation(&ctrl,(float)activation_miles());
     skyframe_ui_set_satellite_image(NULL);         /* the old picture is at the old scale */
     sat_loaded_miles=0;
     air_refetch=true;
 }
+/* Space station: its orbit from CelesTrak twice a day (they ask for no more than every two
+   hours), the next visible pass worked out every half hour (about a second of CPU1). */
+#define ISS_TLE_URL "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE"
+#define ISS_TLE_POLL_MS (12U*3600000U)
+#define ISS_TLE_RETRY_MS (150U*60000U)   /* CelesTrak refuses (403) more than one download per 2 hours */
+#define ISS_PASS_EVERY_MS (30U*60000U)
+#define ISS_MIN_PEAK_DEG 20.0             /* lower passes hide behind trees and houses */
+static sf_orbit_t iss_orbit;                /* network task only */
+/* The orbit is kept in NVS with its download time, so a restart (an update, a power cut)
+   reuses it instead of downloading again: CelesTrak blocks frequent downloads. */
+#define NVS_ISS_TLE "iss_tle"
+#define NVS_ISS_AT "iss_tle_at"
+static int64_t iss_tle_at;                  /* Unix time of the orbit's download, 0 = none */
+static void iss_cache_load(void) {
+    nvs_handle_t h;
+    char text[200];
+    size_t len=sizeof(text);
+    if(nvs_open("skyframe",NVS_READONLY,&h)!=ESP_OK) return;
+    if(nvs_get_str(h,NVS_ISS_TLE,text,&len)==ESP_OK && sf_orbit_parse_text(text,strlen(text),&iss_orbit))
+        nvs_get_i64(h,NVS_ISS_AT,&iss_tle_at);
+    nvs_close(h);
+}
+static void iss_cache_save(const char *text, size_t len, time_t at) {
+    char clean[200];
+    snprintf(clean,sizeof(clean),"%.*s",(int)(len<sizeof(clean)-1?len:sizeof(clean)-1),text);
+    nvs_handle_t h;
+    if(nvs_open("skyframe",NVS_READWRITE,&h)!=ESP_OK) return;
+    if(nvs_set_str(h,NVS_ISS_TLE,clean)==ESP_OK && nvs_set_i64(h,NVS_ISS_AT,(int64_t)at)==ESP_OK) nvs_commit(h);
+    nvs_close(h);
+    iss_tle_at=at;
+}
+static void tick_iss_orbit(app_msg_t *msg, uint32_t now, uint32_t *next_tle, uint32_t *next_pass) {
+    static bool cache_read;
+    if(!cache_read) { cache_read=true; iss_cache_load(); if(iss_orbit.valid) *next_pass=now; }
+    if((int32_t)(now-*next_tle)>=0) {
+        time_t utc=time(NULL);
+        int64_t age=iss_tle_at && utc>1700000000 ? (int64_t)utc-iss_tle_at : -1;
+        if(iss_orbit.valid && age>=0 && age<(int64_t)ISS_TLE_POLL_MS/1000) {
+            *next_tle=now+(uint32_t)((int64_t)ISS_TLE_POLL_MS-age*1000);   /* the saved one is fresh enough */
+        } else if(iss_orbit.valid && utc<1700000000) {
+            *next_tle=now+60000U;                   /* the saved one's age is unknown until the clock is set */
+        } else {
+            uint8_t *text=NULL; size_t len=0;
+            static sf_orbit_t fresh;          /* a bad download must not replace the saved orbit */
+            bool ok=sf_net_get_bytes(ISS_TLE_URL,2048,&text,&len)==ESP_OK && sf_orbit_parse_text((const char *)text,len,&fresh);
+            if(ok) iss_orbit=fresh;
+            if(ok && utc>1700000000) iss_cache_save((const char *)text,len,utc);
+            free(text);
+            if(!ok) ESP_LOGW(TAG,"Space station orbit unavailable%s",iss_orbit.valid?" (using the saved one)":"");
+            *next_tle=now_ms()+(ok?ISS_TLE_POLL_MS:ISS_TLE_RETRY_MS);
+            if(ok) *next_pass=now_ms();
+        }
+    }
+    time_t utc=time(NULL);
+    if(!iss_orbit.valid || utc<1700000000 || (int32_t)(now-*next_pass)<0) return;
+    *next_pass=now_ms()+ISS_PASS_EVERY_MS;
+    memset(msg,0,sizeof(*msg));
+    msg->type=MSG_ISS;
+    /* from 5 minutes back: a pass in progress is still the next one */
+    sf_orbit_next_pass(&iss_orbit,cfg.latitude,cfg.longitude,utc-300,48,ISS_MIN_PEAK_DEG,&msg->data.iss);
+    send_message(msg);
+}
 static void network_task(void *arg) {
     (void)arg;
-    uint32_t next_satellite=0;
+    uint32_t next_satellite=0, next_tle=0, next_pass=0;
     uint32_t next_air=0, next_weather=0, next_verse=0, next_alerts=0;
     /* One message buffer for the task's lifetime (several KB, PSRAM): the queue copies it,
        so reusing it avoids allocating and freeing on every poll. */
@@ -183,6 +248,8 @@ static void network_task(void *arg) {
         }
         uint32_t now=now_ms();
         if (air_refetch) { air_refetch=false; next_air=now; next_satellite=now; }
+        tick_iss_orbit(msg,now,&next_tle,&next_pass);
+        now=now_ms();
         if ((int32_t)(now-next_air)>=0) {
             memset(msg,0,sizeof(*msg));
             msg->type=MSG_TRAFFIC;
@@ -221,6 +288,9 @@ static void network_task(void *arg) {
         }
         now=now_ms();
         unsigned miles=radar_miles();
+        static bool was_wanted;
+        if (sat_wanted && !was_wanted) next_satellite=now;   /* just turned on: now (0 reads as future after ~25 days) */
+        was_wanted=sat_wanted;
         if (sat_wanted && sat_loaded_miles!=miles && (int32_t)(now-next_satellite)>=0) {
             if (fetch_satellite(msg,miles)) sat_loaded_miles=miles;
             next_satellite=now_ms()+SATELLITE_RETRY_MS;
@@ -324,8 +394,8 @@ static void count_today(const sf_aircraft_result_t *result);
 static void check_sightings(const sf_aircraft_result_t *result);
 /* Types seen in traffic, each checked once per boot against the card's type photos; the
    ones without a photo are listed for tools/prepare_plane_photos.py --missing. */
+static TaskHandle_t today_photo_task;   /* the Today photo worker (CPU1) */
 typedef struct { char type[8]; char desc[40]; } seen_type_t;
-static TaskHandle_t today_photo_task;   /* defined with the Today photo worker */
 #define SEEN_TYPES_MAX 400
 static QueueHandle_t seen_types_q;
 static char (*seen_types)[8];             /* PSRAM */
@@ -381,6 +451,7 @@ static void show_sample_sighting(void);
 static bool sample_banner;              /* the sighting banner up is a test sample */
 static bool dismissed_in_test;          /* a real birthday was "dismissed" during a test (not saved) */
 static void show_sample_overhead(void);
+static void show_sample_iss(void);
 static void start_splash(void);
 
 /* Four sample planes circling the radar, one in each special color. */
@@ -568,6 +639,7 @@ static void test_action(sf_test_action_t a) {
     test_started=now_ms();
     if(a==SF_TEST_SIGHTING) show_sample_sighting();
     if(a==SF_TEST_OVERHEAD) show_sample_overhead();
+    if(a==SF_TEST_ISS) show_sample_iss();
     if(a==SF_TEST_SPLASH) start_splash();
     if(a==SF_TEST_TODAY) show_sample_today();
     if(a==SF_TEST_WX_ALERT) wx_alerts_changed=true;
@@ -584,6 +656,7 @@ static uint32_t test_length_ms(sf_test_action_t a) {
     case SF_TEST_SIGHTING: return 25000;
     case SF_TEST_TODAY: return 20000;
     case SF_TEST_OVERHEAD: return 12000;
+    case SF_TEST_ISS: return 15000;
     case SF_TEST_SPLASH: return 7000;
     case SF_TEST_SATELLITE: return 30000;
     case SF_TEST_RANGES: return 3*RANGE_STEP_MS;
@@ -700,19 +773,22 @@ static void log_resources(uint32_t t) {
     cpu_sample(&s,40000000u,cpu);
     if(cpu[0]<0) return;
     static const char *const names[SF_SCREEN_COUNT]={"radar","weather","photos","verse","birthday","today"};
-    ESP_LOGI(TAG,"CPU %d%% / %d%%  RAM %u KB free (lowest %u, block %u)  PSRAM %u KB free  chip %.0fC  [%s]",cpu[0],cpu[1],
+    ESP_LOGI(TAG,"CPU %d%% / %d%%  RAM %u KB free (lowest %u, block %u)  PSRAM %u KB free (block %u)  chip %.0fC  [%s]",cpu[0],cpu[1],
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)/1024),
              (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)/1024),
              (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)/1024),
-             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)/1024),chip_celsius(),
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)/1024),
+             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)/1024),chip_celsius(),
              (unsigned)active_screen<SF_SCREEN_COUNT?names[active_screen]:"?");
     /* Frames: how long the UI thread works on one (the radar's sweep is most of it) and how
        long it waits for the panel. Compare builds on the same screen. */
     lvgl_frame_stats_t f;
     lvgl_frame_stats_take(&f);
-    if(f.measured)
-        ESP_LOGI(TAG,"Frames %.1f/s  work avg %.1f ms, max %.1f ms  vsync wait avg %.1f ms",f.frames/30.f,
-                 f.work_us/1000.f/f.measured,f.work_max_us/1000.f,f.wait_us/1000.f/(f.frames?f.frames:1));
+    if(f.measured) {
+        float n=(float)(f.frames?f.frames:1), ms=1000.f*n;
+        ESP_LOGI(TAG,"Frames %.1f/s  draw avg %.1f ms, max %.1f ms  vsync wait avg %.1f ms  copy avg %.1f ms (%.1f areas, %u px)",
+                 f.frames/30.f,f.work_us/1000.f/f.measured,f.work_max_us/1000.f,f.wait_us/1000.f/n,f.copy_us/ms,f.areas/n,(unsigned)(f.px/n));
+    }
     /* Every 5 minutes: the least free stack each task has had (for sizing them). */
     static int stack_turn;
     if(++stack_turn>=10) {
@@ -747,6 +823,7 @@ static void build_name(char *version, size_t vcap, char *built, size_t bcap) {
 /* Everything the test menu's System panel shows. Called once a second. */
 #define UPDATE_HOUR 3                   /* nightly update check: 3-4 AM local time */
 static char crash_text[48];             /* the last saved crash (read once at boot) */
+static void iss_summary(char *out, size_t cap);
 static void system_stats(uint32_t t, sf_system_stats_t *s) {
     static cpu_sampler_t cs;
     memset(s,0,sizeof(*s));
@@ -773,6 +850,7 @@ static void system_stats(uint32_t t, sf_system_stats_t *s) {
     else if(sf_update_pending_verify()) snprintf(s->update,sizeof(s->update),"v%s: new, settling in",sf_update_version());
     else snprintf(s->update,sizeof(s->update),"Checked nightly at %d AM",UPDATE_HOUR);
     snprintf(s->crash,sizeof(s->crash),"%s",crash_text);
+    iss_summary(s->iss,sizeof(s->iss));
 }
 
 /* Runs the menu / current test. True when the test decides which screen shows. */
@@ -842,6 +920,9 @@ static bool test_tick(uint32_t t, sf_screen_t *forced) {
         *forced=SF_SCREEN_RADAR; return true;
     case SF_TEST_OVERHEAD:
         sf_test_badge("TEST  \xE2\x80\xA2  overhead now");
+        *forced=SF_SCREEN_WEATHER; return true;
+    case SF_TEST_ISS:
+        sf_test_badge("TEST  \xE2\x80\xA2  space station");
         *forced=SF_SCREEN_WEATHER; return true;
     case SF_TEST_SPLASH:   /* as at power-on: joining, then connected */
         sf_splash_status(elapsed<3500?"Joining Wi-Fi...":"Connected");
@@ -965,17 +1046,21 @@ static void save_utc_offset(int32_t offset) {
     if(nvs_set_i32(h,NVS_UTC_OFFSET,offset)==ESP_OK && nvs_commit(h)==ESP_OK) { saved_utc_offset=offset; have_saved_offset=true; }
     nvs_close(h);
 }
-static bool local_time(struct tm *out) {
-    int32_t offset;
-    if(last_weather.valid&&last_weather.has_utc_offset) offset=last_weather.utc_offset_s;
-    else if(have_saved_offset) offset=saved_utc_offset;
+static bool local_offset(int32_t *offset) {
+    if(last_weather.valid&&last_weather.has_utc_offset) *offset=last_weather.utc_offset_s;
+    else if(have_saved_offset) *offset=saved_utc_offset;
     else return false;
-    time_t now=time(NULL);
-    if(now<1700000000) return false;            /* not synced yet */
-    now+=offset;
-    gmtime_r(&now,out);
     return true;
 }
+/* A Unix time as local time; false until the offset and internet time are known. */
+static bool local_tm(time_t utc, struct tm *out) {
+    int32_t offset;
+    if(!local_offset(&offset) || utc<1700000000) return false;
+    utc+=offset;
+    gmtime_r(&utc,out);
+    return true;
+}
+static bool local_time(struct tm *out) { return local_tm(time(NULL),out); }
 static int clock_minutes(const char *hhmm) {
     int h,m;
     return (hhmm&&sscanf(hhmm,"%d:%d",&h,&m)==2&&h>=0&&h<24&&m>=0&&m<60)?h*60+m:-1;
@@ -1323,7 +1408,6 @@ static int today_hour=-1;
    worker task (card reads and JPEG decoding take a moment) and handed over by message. */
 static portMUX_TYPE today_photo_lock=portMUX_INITIALIZER_UNLOCKED;
 static char today_photo_type[8];          /* the type wanted on the page ("" = none) */
-static TaskHandle_t today_photo_task;
 static void request_today_photo(const char *type) {
     bool changed;
     taskENTER_CRITICAL(&today_photo_lock);
@@ -1341,7 +1425,11 @@ static void today_photo_worker(void *arg) {
     for(;;) {
         ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(5000));
         seen_type_t seen;
-        while(seen_types_q && xQueueReceive(seen_types_q,&seen,0)==pdTRUE) plane_library_note_type(seen.type,seen.desc);
+        while(seen_types_q && xQueueReceive(seen_types_q,&seen,0)==pdTRUE)
+            if(!plane_library_note_type(seen.type,seen.desc)) {   /* card busy or with the computer: later */
+                xQueueSendToFront(seen_types_q,&seen,0);
+                break;
+            }
         char type[8];
         taskENTER_CRITICAL(&today_photo_lock);
         memcpy(type,today_photo_type,sizeof(type));
@@ -1572,6 +1660,71 @@ static void tick_sightings(uint32_t t, bool blocked) {
     sf_sighting_show(&v);
     sample_banner=false;
 }
+/* ---- Space station passes -------------------------------------------------------
+   A heads-up card when a visible pass (at least ISS_MIN_PEAK_DEG high) is under 8 hours away,
+   in the daytime or evening, and a reminder 5 minutes before it, once each per pass. */
+static sf_pass_t iss_pass;                   /* from the network task */
+static bool iss_known;                       /* worked out at least once (orbit and time known) */
+static void hm_text(const struct tm *lt, char *out, size_t cap) {
+    snprintf(out,cap,"%d:%02d %s",lt->tm_hour%12?lt->tm_hour%12:12,lt->tm_min,lt->tm_hour<12?"AM":"PM");
+}
+static const char *iss_height(double el) {
+    return el>=60?"almost overhead":el>=35?"high in the sky":"low in the sky";
+}
+/* "6:06 PM  *  look northwest" and "4 min  *  high in the sky  *  toward the east" */
+static bool iss_card_text(const sf_pass_t *p, char *when, size_t wcap, char *name, size_t ncap, char *detail, size_t dcap) {
+    struct tm lt;
+    if(!p->valid || !local_tm(p->start,&lt)) return false;
+    hm_text(&lt,when,wcap);
+    snprintf(name,ncap,"%s  \xE2\x80\xA2  look %s",when,sf_compass_word(p->start_az_deg));
+    long mins=(long)(p->end-p->start+59)/60;
+    snprintf(detail,dcap,"%ld min  \xE2\x80\xA2  %s  \xE2\x80\xA2  toward the %s",mins<1?1:mins,iss_height(p->max_el_deg),
+             sf_compass_word(p->end_az_deg));
+    return true;
+}
+static void iss_summary(char *out, size_t cap) {   /* the System panel line */
+    struct tm lt;
+    static const char *const days[7]={"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+    if(!iss_known) { snprintf(out,cap,"--"); return; }
+    if(!iss_pass.valid || !local_tm(iss_pass.start,&lt)) { snprintf(out,cap,"None in the next 2 days"); return; }
+    char when[12]; hm_text(&lt,when,sizeof(when));
+    snprintf(out,cap,"%s %s, %.0f\xC2\xB0 high",days[lt.tm_wday%7],when,iss_pass.max_el_deg);
+}
+static void show_iss_card(const sf_pass_t *p, long minutes_away) {
+    char when[12], name[64], detail[96], title[40];
+    if(!iss_card_text(p,when,sizeof(when),name,sizeof(name),detail,sizeof(detail))) return;
+    struct tm lt; local_tm(p->start,&lt);
+    if(minutes_away<=10) snprintf(title,sizeof(title),minutes_away<=1?"ISS NOW":"ISS IN %ld MINUTES",minutes_away);
+    else snprintf(title,sizeof(title),"ISS %s",lt.tm_hour<12?"THIS MORNING":"TONIGHT");
+    sf_sighting_view_t v={.kind=SF_SIGHTING_ISS,.title=title,.name=name,.detail=detail,.seconds=minutes_away<=10?30:20};
+    sf_sighting_show(&v);
+}
+static void tick_iss(bool covered) {
+    static time_t announced, reminded;           /* the pass each card was shown for */
+    static uint32_t last;
+    uint32_t t=now_ms();
+    if(last && (uint32_t)(t-last)<5000) return;
+    last=t?t:1;
+    if(covered || sf_sighting_visible() || (cfg.alert_flags&SF_ALERT_NO_ISS) || !iss_pass.valid) return;
+    time_t now=time(NULL);
+    struct tm lt;
+    if(!local_time(&lt)) return;
+    long away=(long)(iss_pass.start-now);
+    if(reminded!=iss_pass.start && away<=5*60 && iss_pass.end>now) {
+        reminded=announced=iss_pass.start;
+        show_iss_card(&iss_pass,away>0?(away+59)/60:0);
+        ESP_LOGI(TAG,"Space station pass reminder");
+    } else if(announced!=iss_pass.start && away>20*60 && away<8*3600 && lt.tm_hour>=7 && lt.tm_hour<22) {
+        announced=iss_pass.start;
+        show_iss_card(&iss_pass,away/60);
+        ESP_LOGI(TAG,"Space station pass tonight: heads-up");
+    }
+}
+/* Test: a pass starting in 5 minutes, NW to E, 52 degrees (shown as the reminder). */
+static void show_sample_iss(void) {
+    sf_pass_t p={.start=time(NULL)+5*60,.end=time(NULL)+9*60,.max_el_deg=52,.start_az_deg=315,.end_az_deg=90,.valid=true};
+    show_iss_card(&p,5);
+}
 static void show_sample_overhead(void) {
     sf_sighting_view_t v={.kind=SF_SIGHTING_OVERHEAD,.title="OVERHEAD NOW",.name="SWA2134  \xE2\x80\xA2  Boeing 737-800",
                           .detail="3,800 ft  \xE2\x80\xA2  heading N  \xE2\x80\xA2  210 mph",.seconds=OVERHEAD_SECONDS};
@@ -1685,6 +1838,7 @@ void app_main(void) {
                     if((unsigned)atoi(msg->data.photo.icao)==radar_miles()) skyframe_ui_set_satellite_image(msg->data.photo.pixels);
                     else free(msg->data.photo.pixels);
                 }
+                else if(msg->type==MSG_ISS) { iss_pass=msg->data.iss; iss_known=true; }
                 else if(msg->type==MSG_TODAY_PHOTO) {
                     /* Still the photo the page wants? (The rarest type may have changed meanwhile.) */
                     uint16_t *px=msg->data.photo.pixels;
@@ -1751,10 +1905,18 @@ void app_main(void) {
             bool sat=(cfg.ui_flags&SF_UI_SATELLITE) || test_is(SF_TEST_SATELLITE);
             sat_wanted=sat;
             skyframe_ui_show_satellite(sat);
+            if(!sat && sat_loaded_miles && skyframe_ui_has_satellite_image()) {   /* 460 KB: let it go */
+                skyframe_ui_set_satellite_image(NULL);
+                sat_loaded_miles=0;
+            }
         }
         /* Sighting banners wait while something covers the screens. */
-        tick_sightings(t,setup_mode||setup_up||(test_mode&&test_running==TEST_NONE)||sf_sd_usb_active()||test_is(SF_TEST_USB)||
-                         test_is(SF_TEST_SIGHTING)||test_is(SF_TEST_OVERHEAD));
+        {
+            bool covered=setup_mode||setup_up||(test_mode&&test_running==TEST_NONE)||sf_sd_usb_active()||test_is(SF_TEST_USB)||
+                         test_is(SF_TEST_SIGHTING)||test_is(SF_TEST_OVERHEAD)||test_is(SF_TEST_ISS);
+            tick_sightings(t,covered);
+            tick_iss(covered);
+        }
         log_resources(t);
         take_birthdays();
         lvgl_render_begin();

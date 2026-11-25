@@ -34,6 +34,7 @@ static TaskHandle_t worker_task;
 static volatile bool want_install;
 static bool pending;               /* running a new version that hasn't proven itself */
 static volatile bool reached;      /* this boot read the release information from GitHub */
+static bool pending_at_boot;       /* boot slot != running slot already at boot */
 static char bad_version[16];
 static void (*restart_cb)(void);
 
@@ -90,7 +91,16 @@ bool sf_update_restart_pending(void)
 }
 static void install(const sf_update_manifest_t *m)
 {
-    if (sf_update_restart_pending()) { set_status(SF_UPDATE_INSTALLED, 100, "Installed; restarting"); return; }
+    if (sf_update_restart_pending()) {   /* installed (e.g. from the web page), restart still to come */
+        set_status(SF_UPDATE_INSTALLED, 100, "Installed; restarting");
+        /* Only when it was installed during this boot: a mismatch already there at boot is
+           the bootloader's business, and restarting for it every night would be a loop. */
+        if (!pending_at_boot) {
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            if (restart_cb) restart_cb(); else esp_restart();
+        }
+        return;
+    }
     /* One TLS session at a time (Wi-Fi + LCD leave little internal RAM): hold the network
        lock for the whole download; traffic polls wait (or skip one update). */
     if (!sf_net_lock(60000)) { set_status(SF_UPDATE_FAILED, 0, "Busy; will try again later"); return; }
@@ -235,6 +245,7 @@ bool sf_update_crash_summary(char *out, size_t cap)
 void sf_update_init(void (*restart)(void))
 {
     restart_cb = restart;
+    pending_at_boot = sf_update_restart_pending();
     const esp_partition_t *run = esp_ota_get_running_partition();
     esp_ota_img_states_t st;
     pending = run && esp_ota_get_state_partition(run, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;

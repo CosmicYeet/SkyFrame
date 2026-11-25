@@ -168,6 +168,7 @@ typedef struct sim_queue *QueueHandle_t;
 QueueHandle_t xQueueCreate(UBaseType_t len, UBaseType_t item);
 #define xQueueCreateWithCaps(len, item, caps) xQueueCreate(len, item)
 BaseType_t xQueueSend(QueueHandle_t q, const void *item, TickType_t wait);
+#define xQueueSendToFront(q, item, wait) xQueueSend((q), (item), (wait))   /* order is not modelled */
 #define xQueueSendToBack xQueueSend
 BaseType_t xQueueOverwrite(QueueHandle_t q, const void *item);
 BaseType_t xQueueReceive(QueueHandle_t q, void *out, TickType_t wait);

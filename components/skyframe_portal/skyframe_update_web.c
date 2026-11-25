@@ -9,6 +9,8 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +53,9 @@ static esp_err_t update_page(httpd_req_t *r)
     return sf_portal_page_end(r);
 }
 
-static void restart_later(void *arg) { (void)arg; sf_planned_restart(); }
+/* Restart once the answer is on its way, from a task with room for Wi-Fi's shutdown (the
+   timer task's stack is small); straight away if the task can't be made. */
+static void restart_task(void *arg) { (void)arg; vTaskDelay(pdMS_TO_TICKS(1500)); sf_planned_restart(); vTaskDelete(NULL); }
 static esp_err_t fail(httpd_req_t *r, const char *status, const char *text)
 {
     httpd_resp_set_status(r, status);
@@ -62,6 +66,10 @@ static esp_err_t update_post(httpd_req_t *r)
     if (!sf_portal_same_origin(r)) return fail(r, "403 Forbidden", "Use the SkyFrame page to update");
     if (r->content_len <= 0 || r->content_len > MAX_FIRMWARE) return fail(r, "400 Bad Request", "That isn't a SkyFrame firmware file");
     if (sf_update_restart_pending()) return fail(r, "409 Conflict", "An update is already installed; SkyFrame is restarting");
+    sf_update_status_t us;
+    sf_update_status(&us);   /* the nightly (or test mode) update is writing the same slot */
+    if (us.state == SF_UPDATE_CHECKING || us.state == SF_UPDATE_DOWNLOADING)
+        return fail(r, "409 Conflict", "SkyFrame is updating itself right now; try again in a few minutes");
     const esp_partition_t *slot = esp_ota_get_next_update_partition(NULL);
     char *buf = heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM);
     esp_ota_handle_t h = 0;
@@ -102,11 +110,10 @@ static esp_err_t update_post(httpd_req_t *r)
     char ok[128];
     snprintf(ok, sizeof(ok), "Installed v%.31s. SkyFrame is restarting; this page reloads in 30 seconds.", d.version);
     httpd_resp_sendstr(r, ok);
-    /* Restart once the answer is on its way. */
-    static esp_timer_handle_t t;
-    const esp_timer_create_args_t a = {.callback = restart_later, .name = "update_restart"};
-    if (!t && esp_timer_create(&a, &t) != ESP_OK) t = NULL;
-    if (t) esp_timer_start_once(t, 1500 * 1000);
+    if (xTaskCreate(restart_task, "update_restart", 4096, NULL, 4, NULL) != pdPASS) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        sf_planned_restart();
+    }
     return ESP_OK;
 }
 

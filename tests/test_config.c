@@ -58,10 +58,12 @@ int main(void){
  /* Sighting alerts: defaults, the form's checkboxes, type lists. */
  sf_config_t d;sf_config_defaults(&d);
  assert(d.alert_flags==SF_DEFAULT_ALERTS&&!strcmp(d.alert_types,"B74*,A388"));
- assert(form(&d,"alerts=1&alert_vip=1&alert_types=b748%2C+a388+c17")&&d.alert_flags==(SF_ALERT_VIP|SF_ALERT_NO_OVERHEAD));
+ assert(!(d.alert_flags&SF_ALERT_NO_ISS));                                                     /* ISS passes start on */
+ assert(form(&d,"alerts=1&alert_vip=1&alert_types=b748%2C+a388+c17")&&d.alert_flags==(SF_ALERT_VIP|SF_ALERT_NO_OVERHEAD|SF_ALERT_NO_ISS));
  assert(!strcmp(d.alert_types,"B748,A388,C17"));
- assert(form(&d,"radar=200")&&d.alert_flags==(SF_ALERT_VIP|SF_ALERT_NO_OVERHEAD));               /* no alert section: kept */
- assert(form(&d,"alerts=1&alert_overhead=1&alert_types=")&&d.alert_flags==0&&!d.alert_types[0]);
+ assert(form(&d,"radar=200")&&d.alert_flags==(SF_ALERT_VIP|SF_ALERT_NO_OVERHEAD|SF_ALERT_NO_ISS));  /* no alert section: kept */
+ assert(form(&d,"alerts=1&alert_overhead=1&alert_types=")&&d.alert_flags==SF_ALERT_NO_ISS&&!d.alert_types[0]);
+ assert(form(&d,"alerts=1&alert_overhead=1&alert_iss=1&alert_types=")&&d.alert_flags==0&&sf_config_valid(&d));
  original=d;why=NULL;
  assert(!sf_config_apply_form(&d,"alert_types=BOEING747",21,&why)&&why);assert(!memcmp(&d,&original,sizeof(d)));
  /* Verse and Today's sky screen times: 0 skips the page, otherwise 5-600 s. */

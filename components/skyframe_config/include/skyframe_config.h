@@ -35,7 +35,8 @@ typedef struct {
 #define SF_ALERT_VIP 2u
 #define SF_ALERT_MILITARY 4u      /* military aircraft other than helicopters */
 #define SF_ALERT_NO_OVERHEAD 8u   /* "Overhead now" cards off (stored inverted, so they start on) */
-#define SF_ALERT_MASK (SF_ALERT_EMERGENCY|SF_ALERT_VIP|SF_ALERT_MILITARY|SF_ALERT_NO_OVERHEAD)
+#define SF_ALERT_NO_ISS 16u       /* space station pass cards off (stored inverted, so they start on) */
+#define SF_ALERT_MASK (SF_ALERT_EMERGENCY|SF_ALERT_VIP|SF_ALERT_MILITARY|SF_ALERT_NO_OVERHEAD|SF_ALERT_NO_ISS)
 #define SF_DEFAULT_ALERTS (SF_ALERT_EMERGENCY|SF_ALERT_VIP|SF_ALERT_MILITARY)
 #define SF_DEFAULT_ALERT_TYPES "B74*,A388"
 /* Clean up a typed type list: upper case, comma separated, 2-4 letters/digits each (or a

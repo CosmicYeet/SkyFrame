@@ -201,6 +201,7 @@ static esp_err_t page(httpd_req_t *r){
   "<label class=chk><input type=checkbox name=alert_vip value=1%s>Air Force One and government VIP flights</label>"
   "<label class=chk><input type=checkbox name=alert_military value=1%s>Military aircraft (not helicopters)</label>"
   "<label class=chk><input type=checkbox name=alert_overhead value=1%s>Any plane passing overhead (within about a mile), briefly</label>"
+  "<label class=chk><input type=checkbox name=alert_iss value=1%s>The space station passing over, when it can be seen</label>"
   "<label>These aircraft types<input name=alert_types maxlength=60 autocapitalize=characters spellcheck=false "
   "value=\"%s\" placeholder='B74*, A388'><span class=hint>ICAO type codes, separated by commas: B748 is a 747-8, "
   "B74* any 747, A388 an A380, C17 a C-17. Leave empty for none.</span></label></section>"
@@ -208,7 +209,8 @@ static esp_err_t page(httpd_req_t *r){
   "<div class=bar><button type=submit>Save settings</button>"
   "<span class=hint>SkyFrame restarts after saving; this takes about 20 seconds.</span></div></form>",
   current->alert_flags&SF_ALERT_EMERGENCY?" checked":"",current->alert_flags&SF_ALERT_VIP?" checked":"",
-  current->alert_flags&SF_ALERT_MILITARY?" checked":"",current->alert_flags&SF_ALERT_NO_OVERHEAD?"":" checked",types,
+  current->alert_flags&SF_ALERT_MILITARY?" checked":"",current->alert_flags&SF_ALERT_NO_OVERHEAD?"":" checked",
+  current->alert_flags&SF_ALERT_NO_ISS?"":" checked",types,
   sf_update_version());
  if(o.over){free(o.b);httpd_resp_send_err(r,HTTPD_500_INTERNAL_SERVER_ERROR,"Page too large");return ESP_OK;}
  sf_portal_page_start(r,"SkyFrame settings",SF_TAB_SETTINGS);

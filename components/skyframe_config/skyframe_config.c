@@ -124,7 +124,7 @@ bool sf_config_apply_form(sf_config_t *cfg,const char *body,size_t len,const cha
  if(!cfg||!body||len>2048)return false;
  sf_config_t next=*cfg;
  char add_ssid[SF_WIFI_SSID_MAX+1]="",add_pass[SF_WIFI_PASS_MAX+1]="",drop[SF_WIFI_SSID_MAX+1]="",prefer[SF_WIFI_SSID_MAX+1]="";
- bool alert_form=false,overhead=false;unsigned alert_flags=0;
+ bool alert_form=false,overhead=false,iss=false;unsigned alert_flags=0;
  bool ui_form=false,transitions=false;
  size_t p=0;
  while(p<len){size_t e=p;while(e<len&&body[e]!='&')e++;
@@ -153,6 +153,7 @@ bool sf_config_apply_form(sf_config_t *cfg,const char *body,size_t len,const cha
   else if(!strcmp(key,"alert_vip"))alert_flags|=SF_ALERT_VIP;
   else if(!strcmp(key,"alert_military"))alert_flags|=SF_ALERT_MILITARY;
   else if(!strcmp(key,"alert_overhead"))overhead=true;
+  else if(!strcmp(key,"alert_iss"))iss=true;
   else if(!strcmp(key,"alert_types")){
    if(!sf_config_types_normalize(val,next.alert_types,sizeof(next.alert_types))){
     *why="Aircraft types are codes of 2 to 4 letters or digits, like B748 or A388 (B74* means any 747), at most 8.";
@@ -163,7 +164,7 @@ bool sf_config_apply_form(sf_config_t *cfg,const char *body,size_t len,const cha
   p=e+1;
  }
  /* Unticked boxes aren't sent at all, so the section's marker says they were all shown. */
- if(alert_form)next.alert_flags=alert_flags|(overhead?0:SF_ALERT_NO_OVERHEAD);
+ if(alert_form)next.alert_flags=alert_flags|(overhead?0:SF_ALERT_NO_OVERHEAD)|(iss?0:SF_ALERT_NO_ISS);
  if(ui_form)next.ui_flags=transitions?next.ui_flags&~SF_UI_NO_TRANSITIONS:next.ui_flags|SF_UI_NO_TRANSITIONS;
  /* Forget first, so a full list can make room in the same save. */
  if(drop[0])forget_network(&next,drop);

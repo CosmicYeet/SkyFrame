@@ -791,6 +791,23 @@ static int overlap_area(const box_t *a, const box_t *b) {
     return w > 0 && h > 0 ? w * h : 0;
 }
 #define ICON_HALF 13                     /* the drawn glyph, inside the 42 px tap box */
+/* Each aircraft's label spot, remembered by its address: a label stays put while its spot is
+   still clear (or barely worse than the best), and moves only when it gets blocked. Without
+   this, two labels competing for space traded places whenever the nearer plane changed. */
+#define LABEL_MEMORY 32
+#define LABEL_STICK_PX 60                /* overlap (px^2) a label tolerates before moving */
+static struct { char icao[9]; int8_t spot; uint32_t used; } label_memory[LABEL_MEMORY];
+static uint32_t label_clock;
+static int label_slot(const char *icao) {
+    int free_slot = 0;
+    for (int k = 0; k < LABEL_MEMORY; k++) {
+        if (label_memory[k].icao[0] && !strcmp(label_memory[k].icao, icao)) return k;
+        if (label_memory[k].used < label_memory[free_slot].used) free_slot = k;   /* least recently used */
+    }
+    snprintf(label_memory[free_slot].icao, sizeof(label_memory[free_slot].icao), "%s", icao);
+    label_memory[free_slot].spot = -1;
+    return free_slot;
+}
 static void redraw_planes(void) {
     /* Traffic is nearest-first, so nearer planes get the preferred label spots. Labels also
        keep clear of the clock, the status line, the airport label and other planes' icons. */
@@ -870,17 +887,23 @@ static void redraw_planes(void) {
             LV_TEXT_ALIGN_CENTER, LV_TEXT_ALIGN_CENTER, LV_TEXT_ALIGN_LEFT, LV_TEXT_ALIGN_RIGHT,
             LV_TEXT_ALIGN_LEFT, LV_TEXT_ALIGN_RIGHT, LV_TEXT_ALIGN_LEFT, LV_TEXT_ALIGN_RIGHT,
             LV_TEXT_ALIGN_CENTER, LV_TEXT_ALIGN_CENTER};
-        int pick = -1, best = INT_MAX;
+        int pick = -1, best = INT_MAX, cost[SPOTS];
         for (int s = 0; s < SPOTS; s++) {
+            cost[s] = INT_MAX;
             if (!box_inside_circle(&spots[s])) continue;
-            int cost = 0;   /* overlap with labels, the clock etc., and other planes' icons */
-            for (int k = 0; k < placed_count; k++) cost += overlap_area(&spots[s], &placed[k]);
+            int c = 0;   /* overlap with labels, the clock etc., and other planes' icons */
+            for (int k = 0; k < placed_count; k++) c += overlap_area(&spots[s], &placed[k]);
             for (int k = 0; k < SKYFRAME_MAX_AIRCRAFT; k++)
-                if (k != i && visible[k]) cost += overlap_area(&spots[s], &icons[k]);
-            if (cost < best) { best = cost; pick = s; }
-            if (!cost) break;   /* spots are in order of preference */
+                if (k != i && visible[k]) c += overlap_area(&spots[s], &icons[k]);
+            cost[s] = c;
+            if (c < best) { best = c; pick = s; }   /* first of the cheapest: spots are in order of preference */
         }
         if (pick < 0) pick = 0;   /* nowhere fully inside the glass: under the plane */
+        int mem = label_slot(traffic[i].icao);
+        label_memory[mem].used = ++label_clock;
+        int prev = label_memory[mem].spot;
+        if (prev >= 0 && prev < SPOTS && cost[prev] != INT_MAX && cost[prev] <= best + LABEL_STICK_PX) pick = prev;
+        label_memory[mem].spot = (int8_t)pick;
         if (plane_look[i].align != aligns[pick]) {   /* alignment change re-lays-out the label */
             plane_look[i].align = (int8_t)aligns[pick];
             lv_obj_set_style_text_align(plane_labels[i], aligns[pick], 0);
@@ -923,10 +946,13 @@ static void place_airport_text(void) {
     if (x + w > CX + half - 6) x = airport_x - AIRPORT_PIN / 2 - 5 - w;
     lv_obj_set_pos(airport_text, x, airport_y - 9);
 }
+static void place_clock(void);
 void skyframe_ui_set_airport_ground(unsigned count) {
     if (count == airport_ground) return;
     airport_ground = count;
     place_airport_text();
+    lv_obj_update_layout(airport_text);
+    place_clock();
 }
 /* The clock lives at the top, the status line at the bottom. An airport marker that sits
    where the clock is (one a few miles due north) would cover it for good, unlike a passing

@@ -26,7 +26,7 @@
 <td width="50%" valign="top">
 
 ### 🛩️ Live radar
-Planes within your chosen radius (10 miles by default) at their true bearing and distance, gliding between updates under an animated sweep with an afterglow, drawn at about 30 frames a second. Flip on **satellite radar** in the pull-down panel and the scope sits over an aerial photo of the area, scaled to the radar (US only). Each icon shows **what the aircraft is** (13 shapes, from Cessnas and helicopters to business jets, fighters and four-engine jumbos), **sized by the aircraft** in 10% steps from light planes to the 747 and A380. Emergencies, VIP flights, military and notable airframes are color-coded. Airborne planes always come first; parked and taxiing ones are small dim dots, with a count next to the BWI marker.
+Planes within your chosen radius (10 miles by default) at their true bearing and distance, gliding between updates under an animated sweep with an afterglow, drawn at about 30 frames a second. Flip on **Satellite** in the pull-down panel and the scope sits over an aerial photo of the area, scaled to the radar (US only). Each icon shows **what the aircraft is** (13 shapes, from Cessnas and helicopters to business jets, fighters and four-engine jumbos), **sized by the aircraft** in 10% steps from light planes to the 747 and A380. Emergencies, VIP flights, military and notable airframes are color-coded. Airborne planes always come first; parked and taxiing ones are small dim dots, with a count next to the BWI marker.
 
 </td>
 <td width="50%" valign="top">
@@ -74,7 +74,7 @@ A daily summary in the rotation: how many planes passed, a photo of the **rarest
 <td valign="top">
 
 ### 🔔 Sighting alerts
-A banner with a pulse around the rim pops up over any screen for **emergencies, Air Force One and VIP flights, military aircraft** and the types you pick (any 747 by default). A shorter **"Overhead now"** card appears when a plane passes within about a mile. Tap either to see it on the radar.
+A banner with a pulse around the rim pops up over any screen for **emergencies, Air Force One and VIP flights, military aircraft** and the types you pick (any 747 by default). A shorter **"Overhead now"** card appears when a plane passes within about a mile. Tap either to see it on the radar. **Space station passes:** when the ISS will be visible overhead (dark sky, station in sunlight, at least 20° up), a card says when and where to look ("ISS TONIGHT: 6:06 PM, look northwest"), and again 5 minutes before.
 
 </td>
 </tr>
@@ -142,9 +142,9 @@ Swipe down from the top third of any screen:
 | Pause | Stay on the current screen (resumes by itself after an hour) |
 | USB | Hand the microSD card to a connected computer |
 | Settings | The settings screen with its QR codes |
-| Page animations | Turn the screen-change animations on or off |
-| Satellite radar | Show the radar over a satellite picture of the area; remembered |
-| Radar range | Shows the radar radius; each tap steps 1 → 5 → 10 → 1 mi, saved and applied at once (the radar shows up for planes within 1, 3 and 5 miles). The settings page can still set any radius |
+| Animations | Turn the screen-change animations on or off |
+| Satellite | Show the radar over a satellite picture of the area; remembered |
+| Range | Shows the radar radius; each tap steps 1 → 5 → 10 → 1 mi, saved and applied at once (the radar shows up for planes within 1, 3 and 5 miles). The settings page can still set any radius |
 
 It closes with a swipe up, a tap below it, or after 20 s untouched.
 
@@ -175,7 +175,7 @@ On the home Wi-Fi, open **http://skyframe.local** (or the IP address shown on th
 
 | Page | What you can do |
 |---|---|
-| **Settings** `/` | Wi-Fi networks (up to five; the strongest one in range is used), radar center and radius, how long each screen stays up (verse and Today's sky can be turned off), page animations, night hours, and sighting alerts (emergencies, VIP, military, planes overhead, and a list of aircraft types such as `B74*, A388`) |
+| **Settings** `/` | Wi-Fi networks (up to five; the strongest one in range is used), radar center and radius, how long each screen stays up (verse and Today's sky can be turned off), page animations, night hours, and sighting alerts (emergencies, VIP, military, planes overhead, space station passes, and a list of aircraft types such as `B74*, A388`) |
 | **Photos** `/photos` | Add photos from a phone or computer (rotated and cropped in the browser), remove photos |
 | **Birthdays** `/birthdays` | Add or remove people, set photos, mark the owner and write their birthday message |
 | **Firmware update** `/update` | Install a signed `SkyFrame.bin` from a computer on the same Wi-Fi |
@@ -201,7 +201,7 @@ Format the card **FAT32**. SkyFrame never formats a card itself.
 | **Plane type photos** | About 190 types from Wikipedia: `python tools/prepare_plane_photos.py F:\planes`. SkyFrame lists every type it sees without a photo in `planes/missing.txt`; now and then run `python tools/prepare_plane_photos.py F:\planes --missing` to fetch those too (it searches Wikipedia by the aircraft's description and takes found types off the list) |
 | **Birthdays** | Copy `tools/birthdays.example.txt` to `/birthdays.txt`, one line per person: `Name, YYYY-MM-DD, photo.jpg`, and `owner` on the device owner's line. Square photos in `/birthdays/` look best |
 
-**USB file transfer:** plug the board's native **USB** port (not "UART") into a computer and the card appears as a drive (or tap **USB** in the pull-down panel). SkyFrame shows "USB file transfer" and stays off the card. Eject the drive on the computer, then tap **Done**: SkyFrame takes the card back and picks up the changes.
+**USB file transfer:** plug the board's native **USB** port (not "UART") into a computer and the card appears as a drive (or tap **USB** in the pull-down panel). SkyFrame shows "USB file transfer" and stays off the card. When you're done, eject the drive on the computer (SkyFrame takes the card back by itself and picks up the changes), or tap **Done** on SkyFrame.
 
 ## Test mode
 
@@ -225,6 +225,7 @@ Hold any screen for 5 s to open settings, then hold the settings screen's backgr
 | Weather alert | A sample Severe Thunderstorm Warning and Flood Watch; tap or swipe the card | 45 s |
 | Sighting alert | An Air Force One banner over the weather; tap it for the radar | 25 s |
 | Overhead now | A sample "Overhead now" card | 12 s |
+| Space station | A sample "ISS in 5 minutes" card (the **System** panel shows the real next pass) | 15 s |
 | Check for updates | Checks for a newer version now and installs it; the button shows the result or the progress | |
 | Restart | Restarts SkyFrame | |
 
@@ -326,6 +327,7 @@ GitHub shows both as interactive 3D models: open a file to rotate it.
 | Airframe photos | [airport-data.com](https://www.airport-data.com) |
 | Weather | [Open-Meteo](https://open-meteo.com) |
 | Severe-weather alerts | [National Weather Service](https://www.weather.gov/documentation/services-web-api) (US only) |
+| Space station orbit | [CelesTrak](https://celestrak.org) (the ISS element set, twice a day); passes are worked out on the device |
 | Satellite radar picture | [USGS The National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map) imagery, public domain (US only) |
 | Type photos | Wikipedia lead images, hosted on Wikimedia Commons |
 | Verse of the day | [BibleGateway](https://www.biblegateway.com) |

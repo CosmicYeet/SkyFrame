@@ -17,6 +17,8 @@ typedef struct {
     uint64_t work_us;         /* their UI work in all */
     uint32_t work_max_us;
     uint64_t wait_us;         /* waiting for the panel's refresh */
+    uint64_t copy_us;         /* copying changed areas to the panel's frame buffer */
+    uint32_t areas, px;       /* changed areas and pixels copied */
 } lvgl_frame_stats_t;
 void lvgl_render_begin(void);
 void lvgl_frame_stats_take(lvgl_frame_stats_t *out);

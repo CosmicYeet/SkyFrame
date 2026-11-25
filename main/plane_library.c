@@ -103,12 +103,13 @@ esp_err_t plane_library_save(const char *icao, const uint16_t *pixels)
 }
 
 #define MISSING_FILE PLANES_DIR "/missing.txt"
-void plane_library_note_type(const char *type_code, const char *description)
+bool plane_library_note_type(const char *type_code, const char *description)
 {
     char name[12], path[64];
-    if (!safe_name(type_code, 7, name, sizeof(name), true)) return;
+    if (!safe_name(type_code, 7, name, sizeof(name), true)) return true;   /* nothing to do */
     snprintf(path, sizeof(path), TYPES_DIR "/%s.jpg", name);
-    if (!sf_sd_begin()) return;
+    if (!sf_sd_present()) return true;
+    if (!sf_sd_begin()) return false;
     struct stat st;
     if (stat(path, &st) != 0) {
         /* Not on the card: listed already? (a short file, read line by line) */
@@ -130,4 +131,5 @@ void plane_library_note_type(const char *type_code, const char *description)
         }
     }
     sf_sd_end();
+    return true;
 }

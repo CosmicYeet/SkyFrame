@@ -37,3 +37,8 @@ exe8=$(mktemp /tmp/skyframe_update_XXXXXX)
 cc -std=c11 -Wall -Wextra -Icomponents/skyframe_update/include -Imanaged_components/espressif__cjson/cJSON tests/test_update.c components/skyframe_update/skyframe_update_manifest.c managed_components/espressif__cjson/cJSON/cJSON.c -lm -o "$exe8"
 "$exe8"
 rm -f "$exe8"
+
+exe10=$(mktemp /tmp/skyframe_orbit_XXXXXX)
+cc -std=c11 -Wall -Wextra -Icomponents/skyframe_engine/include tests/test_orbit.c components/skyframe_engine/skyframe_orbit.c -lm -o "$exe10"
+"$exe10"
+rm -f "$exe10"

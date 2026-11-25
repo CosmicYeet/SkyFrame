@@ -652,6 +652,7 @@ static void alert_close(lv_event_t *e){(void)e;sf_weather_close_alert();}
 #define SF_ALERT_HIDE_MS (5U*60U*1000U)  /* a swiped-away alert comes back after 5 minutes */
 static bool alert_dismissed;             /* hidden by a swipe (alert_hide_timer brings it back) */
 static char alert_dismissed_event[64];
+static char alert_shown_event[64];       /* the full name (the label may end in "...") */
 static uint8_t alert_dismissed_level;
 static lv_timer_t *alert_hide_timer;
 static lv_coord_t alert_press_x, alert_press_y;
@@ -700,6 +701,7 @@ static void alert_drag(lv_event_t *e){
     lv_indev_t *in=lv_indev_get_act();
     if(!in)return;
     lv_point_t p;lv_indev_get_point(in,&p);
+    if(alert_dismissed){alert_swallow_click=true;return;}   /* sliding away: leave it be */
     if(code==LV_EVENT_PRESSED){
         alert_press_x=p.x;alert_press_y=p.y;alert_dragging=false;alert_swallow_click=false;
         lv_anim_del(alert_card,alert_card_x);
@@ -714,7 +716,7 @@ static void alert_drag(lv_event_t *e){
         if(LV_ABS(dx)<ALERT_SWIPE_PX){alert_slide(ALERT_CARD_X,false);return;}
         /* hidden: remember which alert, come back after a while */
         alert_dismissed=true;
-        snprintf(alert_dismissed_event,sizeof(alert_dismissed_event),"%s",lv_label_get_text(alert_event));
+        snprintf(alert_dismissed_event,sizeof(alert_dismissed_event),"%s",alert_shown_event);
         if(alert_hide_timer)lv_timer_del(alert_hide_timer);
         alert_hide_timer=lv_timer_create(alert_unhide,SF_ALERT_HIDE_MS,NULL);
         lv_timer_set_repeat_count(alert_hide_timer,1);
@@ -808,6 +810,7 @@ void sf_weather_set_alerts(const sf_weather_alert_view_t *a,int count,int total)
     lv_obj_set_style_border_opa(alert_card,LV_OPA_COVER,0);
     lv_obj_set_style_text_color(alert_icon,c,0);
     lv_label_set_text(alert_event,first);
+    snprintf(alert_shown_event,sizeof(alert_shown_event),"%s",first);
     char sub[96];
     if(total>1)snprintf(sub,sizeof(sub),"%s%s+%d more  \xE2\x80\xA2  Tap to read",a[0].until&&a[0].until[0]?a[0].until:"",
                         a[0].until&&a[0].until[0]?"  \xE2\x80\xA2  ":"",total-1);
@@ -1098,7 +1101,7 @@ static void build_verse(lv_obj_t *parent){
     lv_obj_set_style_bg_grad_color(verse_root,lv_color_hex(0x080E1C),0);
     lv_obj_set_style_bg_grad_dir(verse_root,LV_GRAD_DIR_VER,0);
     sf_gesture_attach(verse_root);
-    plain_label(verse_root,"VERSE OF THE DAY",lv_color_hex(0xD9B76A),&lv_font_montserrat_12,140,62,200);
+    plain_label(verse_root,"VERSE OF THE DAY",lv_color_hex(0xD9B76A),&lv_font_montserrat_14,120,61,240);
     lv_obj_t *rule=lv_obj_create(verse_root);plain_obj(rule);
     lv_obj_set_pos(rule,210,84);lv_obj_set_size(rule,60,2);
     lv_obj_set_style_bg_color(rule,lv_color_hex(0xD9B76A),0);lv_obj_set_style_bg_opa(rule,LV_OPA_COVER,0);
@@ -1414,8 +1417,7 @@ static void build_setup(const sf_setup_info_t *info){
     setup_step[1]=setup_page_box(url,"Scan to open the settings page");
     c=setup_details(setup_step[1]);
     lv_label_set_text(stat_row(c,"Address",ACCENT_GREEN),url+7);
-    if(home){snprintf(b,sizeof(b),"http://%s",info->home_ip);lv_label_set_text(stat_row(c,"Or",ACCENT_GREEN),b);}
-    else lv_label_set_text(stat_row(c,"Phone on",WHITE),"SkyFrame's Wi-Fi");
+    if(!home)lv_label_set_text(stat_row(c,"Phone on",WHITE),"SkyFrame's Wi-Fi");
     if(home)setup_buttons(setup_step[1],"Other Wi-Fi",NAV_NEXT,setup_closable?"Done  " LV_SYMBOL_OK:NULL,NAV_CLOSE);
     else setup_buttons(setup_step[1],LV_SYMBOL_LEFT "  Back",NAV_BACK,setup_closable?"Done  " LV_SYMBOL_OK:NULL,NAV_CLOSE);
 
@@ -1443,14 +1445,14 @@ void sf_setup_show(bool show,const sf_setup_info_t *info){
 #define LIST_W 340
 enum { TILE_CPU, TILE_RAM, TILE_TEMP, TILE_COUNT };
 enum { ROW_RAM_LOW, ROW_BLOCK, ROW_PSRAM, ROW_SD, ROW_BATTERY, ROW_WIFI, ROW_IP, ROW_UPTIME,
-       ROW_BOOTS, ROW_RESET, ROW_CRASH, ROW_CLOCK, ROW_VERSION, ROW_UPDATE, ROW_COUNT };
-enum { WEB_SETTINGS, WEB_PHOTOS, WEB_BIRTHDAYS, WEB_IP, WEB_COUNT };
+       ROW_BOOTS, ROW_RESET, ROW_CRASH, ROW_CLOCK, ROW_VERSION, ROW_UPDATE, ROW_ISS, ROW_COUNT };
+
 static lv_obj_t *test_root, *test_list, *test_badge, *web_note, *test_version;
 /* "Check for updates": once tapped, its label shows the check as it goes (the System
    panel's Updates row is far up the list). */
 static lv_obj_t *update_button_label;
 static bool update_tapped;
-static lv_obj_t *tile_value[TILE_COUNT], *row_value[ROW_COUNT], *web_row[WEB_COUNT], *web_ip;
+static lv_obj_t *tile_value[TILE_COUNT], *row_value[ROW_COUNT], *web_row;
 static sf_system_stats_t test_stats;
 static bool have_test_stats;
 static void apply_stats(void);
@@ -1553,7 +1555,8 @@ static void build_test_menu(void){
     g=list_box(test_list,LV_FLEX_FLOW_ROW_WRAP,10);
     test_button(g,SF_TEST_WX_ALERT,LV_SYMBOL_WARNING,"Weather alert",lv_color_hex(0xFF9F43),WHITE,false);
     test_button(g,SF_TEST_SIGHTING,LV_SYMBOL_EYE_OPEN,"Sighting alert",lv_color_hex(0xFF9F43),WHITE,false);
-    test_button(g,SF_TEST_OVERHEAD,LV_SYMBOL_UP,"Overhead now",lv_color_hex(0xFF9F43),WHITE,true);
+    test_button(g,SF_TEST_OVERHEAD,LV_SYMBOL_UP,"Overhead now",lv_color_hex(0xFF9F43),WHITE,false);
+    test_button(g,SF_TEST_ISS,LV_SYMBOL_GPS,"Space station",lv_color_hex(0xFF9F43),WHITE,false);
 
     section(test_list,"SYSTEM",ACCENT_GREEN);
     g=list_box(test_list,LV_FLEX_FLOW_ROW,10);
@@ -1571,19 +1574,14 @@ static void build_test_menu(void){
         [ROW_RAM_LOW]="Lowest free RAM",[ROW_BLOCK]="Largest RAM block",[ROW_PSRAM]="PSRAM",
         [ROW_SD]="microSD",[ROW_BATTERY]="Battery",[ROW_WIFI]="Wi-Fi",[ROW_IP]="IP address",
         [ROW_UPTIME]="Running for",[ROW_BOOTS]="Times started",[ROW_RESET]="Last restart",
-        [ROW_CRASH]="Last crash",[ROW_CLOCK]="Processor",[ROW_VERSION]="Built",[ROW_UPDATE]="Updates"};
+        [ROW_CRASH]="Last crash",[ROW_CLOCK]="Processor",[ROW_VERSION]="Built",[ROW_UPDATE]="Updates",[ROW_ISS]="Space station"};
     for(int i=0;i<ROW_COUNT;i++)row_value[i]=stat_row(c,row_names[i],WHITE);
 
     section(test_list,"WEB PAGES",ACCENT_GREEN);
     c=card(test_list);
-    static const char *const web_names[WEB_COUNT]={"Settings","Photos","Birthdays","Or use"};
-    static const char *const web_paths[WEB_COUNT]={"skyframe.local","skyframe.local/photos","skyframe.local/birthdays",""};
-    for(int i=0;i<WEB_COUNT;i++){
-        lv_obj_t *v=stat_row(c,web_names[i],ACCENT_GREEN);
-        lv_label_set_text(v,web_paths[i]);
-        web_row[i]=lv_obj_get_parent(v);
-        if(i==WEB_IP)web_ip=v;
-    }
+    lv_obj_t *v=stat_row(c,"Address",ACCENT_GREEN);   /* the other pages are linked from it */
+    lv_label_set_text(v,"skyframe.local");
+    web_row=lv_obj_get_parent(v);
     web_note=text_label(c,"Not on the home Wi-Fi yet. Join the SkyFrame setup network and open http://192.168.4.1",
                         MUTED,LV_FONT_DEFAULT);
     lv_obj_set_width(web_note,LV_PCT(100));
@@ -1649,17 +1647,12 @@ static void apply_stats(void){
     set_text(row_value[ROW_UPDATE],s->update[0]?s->update:"--");
     if(update_tapped&&update_button_label&&s->update[0])set_text(update_button_label,s->update);
     set_text(row_value[ROW_CRASH],s->crash[0]?s->crash:"None saved");
+    set_text(row_value[ROW_ISS],s->iss[0]?s->iss:"--");
     set_text(test_version,s->version);
 
-    /* Web pages: by name and address on the home Wi-Fi, otherwise how to reach setup. */
-    for(int i=0;i<WEB_COUNT;i++){
-        if(s->ip[0])lv_obj_clear_flag(web_row[i],LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(web_row[i],LV_OBJ_FLAG_HIDDEN);
-    }
-    if(s->ip[0])lv_obj_add_flag(web_note,LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_clear_flag(web_note,LV_OBJ_FLAG_HIDDEN);
-    snprintf(b,sizeof(b),"http://%.15s",s->ip);
-    set_text(web_ip,b);
+    /* Web pages: the address on the home Wi-Fi, otherwise how to reach setup. */
+    if(s->ip[0]){lv_obj_clear_flag(web_row,LV_OBJ_FLAG_HIDDEN);lv_obj_add_flag(web_note,LV_OBJ_FLAG_HIDDEN);}
+    else{lv_obj_add_flag(web_row,LV_OBJ_FLAG_HIDDEN);lv_obj_clear_flag(web_note,LV_OBJ_FLAG_HIDDEN);}
 }
 void sf_test_menu_set_stats(const sf_system_stats_t *stats){
     if(!stats)return;
@@ -1739,7 +1732,7 @@ static void build_today(lv_obj_t *parent){
     lv_obj_set_style_bg_grad_color(today_root,lv_color_hex(0x060B17),0);
     lv_obj_set_style_bg_grad_dir(today_root,LV_GRAD_DIR_VER,0);
     sf_gesture_attach(today_root);
-    lv_obj_t *t=plain_label(today_root,"TODAY'S SKY",ACCENT_GREEN,&lv_font_montserrat_12,140,34,200);
+    lv_obj_t *t=plain_label(today_root,"TODAY'S SKY",ACCENT_GREEN,&lv_font_montserrat_14,120,33,240);
     lv_obj_set_style_text_letter_space(t,3,0);
     today_date=plain_label(today_root,"",MUTED,LV_FONT_DEFAULT,110,52,260);
 
@@ -1875,7 +1868,7 @@ void sf_today_show(bool show){
 /* ---- Sighting alert ---------------------------------------------------------
    On the top layer, so it shows over whichever screen is up. The rim ring pulses three
    times as it arrives; the banner's glow keeps breathing until it leaves. */
-static const uint32_t sighting_color[]={0x7CF5A3,0x6EDCFF,0xFFC857,0xC89BFF,0xFF5A5A,0x6EB6FF};   /* overhead, type, military, VIP, emergency, news */
+static const uint32_t sighting_color[]={0x7CF5A3,0x6EDCFF,0xFFC857,0xC89BFF,0xFF5A5A,0x6EB6FF,0xE8EEFF};   /* overhead, type, military, VIP, emergency, news, ISS */
 static lv_obj_t *sight_ring, *sight_banner, *sight_title, *sight_name, *sight_detail;
 static lv_timer_t *sight_timer;
 static void (*on_sighting_tap)(void);
@@ -1963,16 +1956,16 @@ void sf_sighting_show(const sf_sighting_view_t *v){
     if(!v){sighting_hide(false);return;}
     if(!sight_banner)build_sighting();
     sighting_hide(false);
-    sight_is_news=v->kind==SF_SIGHTING_NEWS;
-    lv_color_t c=lv_color_hex(sighting_color[v->kind<=SF_SIGHTING_NEWS?v->kind:0]);
+    sight_is_news=v->kind==SF_SIGHTING_NEWS||v->kind==SF_SIGHTING_ISS;   /* a tap only closes these */
+    lv_color_t c=lv_color_hex(sighting_color[v->kind<=SF_SIGHTING_ISS?v->kind:0]);
     char b[96];
     snprintf(b,sizeof(b),"%s  %s",v->kind==SF_SIGHTING_EMERGENCY?LV_SYMBOL_WARNING:v->kind==SF_SIGHTING_OVERHEAD?LV_SYMBOL_UP:
-             v->kind==SF_SIGHTING_NEWS?LV_SYMBOL_DOWNLOAD:LV_SYMBOL_EYE_OPEN,
+             v->kind==SF_SIGHTING_NEWS?LV_SYMBOL_DOWNLOAD:v->kind==SF_SIGHTING_ISS?LV_SYMBOL_GPS:LV_SYMBOL_EYE_OPEN,
              v->title?v->title:"");
     lv_label_set_text(sight_title,b);
     lv_obj_set_style_text_color(sight_title,c,0);
     lv_label_set_text(sight_name,v->name?v->name:"");
-    if(v->kind==SF_SIGHTING_NEWS)snprintf(b,sizeof(b),"%s",v->detail?v->detail:"");
+    if(sight_is_news)snprintf(b,sizeof(b),"%s",v->detail?v->detail:"");
     else snprintf(b,sizeof(b),"%s%sTap to see it on the radar",v->detail?v->detail:"",v->detail&&v->detail[0]?"  \xE2\x80\xA2  ":"");
     lv_label_set_text(sight_detail,b);
     lv_obj_set_style_border_color(sight_banner,c,0);
@@ -1996,7 +1989,7 @@ void sf_sighting_show(const sf_sighting_view_t *v){
     lv_anim_init(&a);
     lv_anim_set_var(&a,sight_ring);lv_anim_set_exec_cb(&a,anim_ring_opa);
     lv_anim_set_values(&a,LV_OPA_TRANSP,LV_OPA_90);lv_anim_set_time(&a,450);lv_anim_set_playback_time(&a,450);
-    lv_anim_set_repeat_count(&a,v->kind==SF_SIGHTING_OVERHEAD||v->kind==SF_SIGHTING_NEWS?1:3);lv_anim_set_ready_cb(&a,hide_when_done);
+    lv_anim_set_repeat_count(&a,v->kind==SF_SIGHTING_OVERHEAD||sight_is_news?1:3);lv_anim_set_ready_cb(&a,hide_when_done);
     lv_anim_start(&a);
     sight_timer=lv_timer_create(sighting_timeout,(v->seconds?v->seconds:20)*1000u,NULL);
     lv_timer_set_repeat_count(sight_timer,1);
@@ -2165,12 +2158,12 @@ static void build_quick(void){
     lv_obj_center(text_label(set,LV_SYMBOL_SETTINGS " Settings",WHITE,LV_FONT_DEFAULT));
 
     /* y 258-292: page animations (also on the settings page); y 298-332: satellite radar. */
-    quick_anim_switch=quick_switch_row(258,"Page animations",quick_switched);
-    quick_sat_switch=quick_switch_row(298,"Satellite radar",quick_sat_switched);
+    quick_anim_switch=quick_switch_row(258,"Animations",quick_switched);
+    quick_sat_switch=quick_switch_row(298,"Satellite",quick_sat_switched);
 
     /* y 338-372: radar range; each tap steps 1 -> 5 -> 10 -> 1 mi (the settings page can
        still set any radius). */
-    lv_obj_t *rl=text_label(quick_panel,"Radar range",WHITE,LV_FONT_DEFAULT);
+    lv_obj_t *rl=text_label(quick_panel,"Range",WHITE,LV_FONT_DEFAULT);
     lv_obj_set_pos(rl,120,347);
     quick_range_btn=quick_pill(quick_panel,282,338,78,SF_QUICK_RANGE);
     lv_obj_set_height(quick_range_btn,34);lv_obj_set_style_radius(quick_range_btn,17,0);
@@ -2499,6 +2492,9 @@ static lv_obj_t *tr_overlay(void){
 static const void *(*frame_source)(void);
 void sf_screens_set_frame_source(const void *(*frame)(void)){frame_source=frame;}
 static bool tr_snapshot(void){
+    /* Draw what is still pending first: the pull-down panel (or a banner) has just hidden
+       itself, but until that is drawn the glass still shows its last half-retracted frame. */
+    lv_refr_now(NULL);
     const void *fb=frame_source?frame_source():NULL;
     if(!fb)return false;
     const uint32_t bytes=480u*480u*sizeof(lv_color_t);

@@ -15,7 +15,8 @@
 #include <math.h>
 
 static const char *TAG="skyframe_net";
-typedef struct {char *body;size_t used,cap;bool overflow;} reply_t;
+typedef struct {char *body;size_t used,cap,limit;bool overflow;} reply_t;   /* limit: largest body accepted */
+#define REPLY_START (32*1024)   /* most replies fit; bigger ones grow (doubling) up to the limit */
 static esp_err_t on_event(esp_http_client_event_t *e){
  reply_t *r=(reply_t*)e->user_data;
  /* Automatic redirects deliver every response's body here, so keep only the last
@@ -26,7 +27,14 @@ static esp_err_t on_event(esp_http_client_event_t *e){
  if(status>=300&&status<400)return ESP_OK;
  if(!r||e->data_len<0)return ESP_FAIL;
  size_t bytes=(size_t)e->data_len;
- if(bytes>r->cap-r->used-1){r->overflow=true;return ESP_FAIL;}
+ if(bytes>r->cap-r->used-1){
+  size_t need=r->used+bytes+1,cap=r->cap;
+  if(need>r->limit+1){r->overflow=true;return ESP_FAIL;}
+  while(cap<need)cap=cap*2>r->limit+1?r->limit+1:cap*2;
+  char *grown=heap_caps_realloc(r->body,cap,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+  if(!grown){r->overflow=true;return ESP_FAIL;}
+  r->body=grown;r->cap=cap;
+ }
  memcpy(r->body+r->used,e->data,bytes);r->used+=bytes;r->body[r->used]=0;
  return ESP_OK;
 }
@@ -62,10 +70,12 @@ static cJSON *json_parse(const char *text,size_t len){
  return cJSON_ParseWithLength(text,len);
 }
 static esp_err_t fetch_locked(const char *url,size_t max_payload,reply_t *reply,bool quiet_404){
- /* Allocate payload buffer from PSRAM when possible; do not consume all internal SRAM. */
- reply->body=heap_caps_malloc(max_payload+1,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+ /* Payload buffer in PSRAM (internal RAM is for Wi-Fi and TLS), sized for a typical reply and
+    grown as data arrives: a fixed max_payload block every 20 s churned PSRAM for weeks. */
+ size_t start=max_payload<REPLY_START?max_payload:REPLY_START;
+ reply->body=heap_caps_malloc(start+1,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
  if(!reply->body)return ESP_ERR_NO_MEM;
- reply->cap=max_payload+1;reply->body[0]=0;
+ reply->cap=start+1;reply->limit=max_payload;reply->body[0]=0;
  esp_http_client_config_t cfg={.url=url,.timeout_ms=12000,.event_handler=on_event,
      .user_data=reply,.crt_bundle_attach=esp_crt_bundle_attach,.buffer_size=2048,
      /* Request line + headers. The default 512 can't hold GitHub's signed redirect address
