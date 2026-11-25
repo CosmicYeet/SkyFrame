@@ -8,9 +8,15 @@ the lead image of the type's English Wikipedia article (hosted on Wikimedia Comm
 crops it to the details-page frame (280x156) and saves a small baseline JPEG.
 Photo credits are written to ATTRIBUTION.txt next to the photos.
 
+SkyFrame also lists every type it sees in traffic without a photo in planes/missing.txt
+("TYPE<tab>description", e.g. "C172<tab>CESSNA 172 Skyhawk"). --missing fetches those:
+known types from the list below, the rest by searching Wikipedia for the description;
+types found are taken off the list.
+
 Requires Pillow:  python -m pip install pillow
 Usage:            python tools/prepare_plane_photos.py F:/planes      (F: = the microSD card)
                   python tools/prepare_plane_photos.py F:/planes --only B738,A320 --force
+                  python tools/prepare_plane_photos.py F:/planes --missing
 """
 import argparse
 import io
@@ -149,6 +155,48 @@ def lead_images(titles):
     return found
 
 
+def tidy_description(desc):
+    """'BOEING 737-800' -> 'Boeing 737-800', 'CESSNA 172 Skyhawk' -> 'Cessna 172 Skyhawk'."""
+    words = []
+    for w in desc.split():
+        words.append(w.capitalize() if w.isalpha() and w.isupper() and len(w) > 3 else w)
+    return " ".join(words)
+
+
+def search_article(desc):
+    """The English Wikipedia article that best matches an aircraft description, or None."""
+    data = get_json({"action": "query", "format": "json", "formatversion": "2", "list": "search",
+                     "srsearch": tidy_description(desc) + " aircraft", "srlimit": "1", "srnamespace": "0"})
+    hits = data.get("query", {}).get("search", [])
+    return hits[0]["title"] if hits else None
+
+
+def read_missing(folder):
+    """type -> description from SkyFrame's planes/missing.txt."""
+    path = folder / "missing.txt"
+    found = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            code, _, desc = line.partition("\t")
+            code = code.strip().upper()
+            if code and code.isalnum():
+                found[code] = desc.strip()
+    return found
+
+
+def read_attribution(folder):
+    """code -> (title, Commons file name, article URL) already in ATTRIBUTION.txt."""
+    path = folder / "ATTRIBUTION.txt"
+    known = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[2].startswith("https://commons.wikimedia.org/wiki/File:"):
+                name = urllib.parse.unquote(parts[2].rsplit("File:", 1)[1]).replace("_", " ")
+                known[parts[0]] = (parts[1], name, "")
+    return known
+
+
 def download(url):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=60) as r:
@@ -168,10 +216,26 @@ def main():
     ap.add_argument("destination", type=Path, help="the card's planes folder, e.g. F:/planes")
     ap.add_argument("--only", help="comma-separated type codes to fetch (default: all)")
     ap.add_argument("--force", action="store_true", help="replace photos that already exist")
+    ap.add_argument("--missing", action="store_true",
+                    help="fetch the types SkyFrame listed in missing.txt (searching Wikipedia for unknown ones)")
     a = ap.parse_args()
 
     wanted = TYPES
-    if a.only:
+    missing = {}
+    if a.missing:
+        missing = read_missing(a.destination)
+        if not missing:
+            print("missing.txt lists no types: nothing to fetch.")
+            return 0
+        wanted = {}
+        print(f"{len(missing)} type(s) listed in missing.txt:")
+        for code, desc in sorted(missing.items()):
+            title = TYPES.get(code) or (search_article(desc) if desc else None)
+            print(f"  {code:5} {desc or '(no description)'} -> {title or 'no article found'}")
+            if title:
+                wanted[code] = title
+            time.sleep(0.2)
+    elif a.only:
         codes = [c.strip().upper() for c in a.only.split(",") if c.strip()]
         unknown = [c for c in codes if c not in TYPES]
         if unknown:
@@ -183,7 +247,7 @@ def main():
     print(f"Looking up {len(set(wanted.values()))} Wikipedia articles...")
     images = lead_images(wanted.values())
 
-    credits, cache, done, skipped, failed = {}, {}, 0, 0, []
+    credits, cache, done, skipped, failed = read_attribution(a.destination), {}, 0, 0, []
     for code, title in sorted(wanted.items()):
         path = out / f"{code}.jpg"
         if title not in images:
@@ -211,6 +275,13 @@ def main():
         for code, (title, file_name, page) in sorted(credits.items()):
             commons = "https://commons.wikimedia.org/wiki/File:" + urllib.parse.quote(file_name.replace(" ", "_"))
             f.write(f"{code}\t{title}\t{commons}\n")
+
+    if a.missing:   # what's on the card now comes off the list; the rest stays for next time
+        left = {c: d for c, d in missing.items() if not (out / f"{c}.jpg").exists()}
+        with open(a.destination / "missing.txt", "w", encoding="utf-8", newline="\n") as f:
+            for code, desc in sorted(left.items()):
+                f.write(f"{code}\t{desc}\n")
+        print(f"missing.txt: {len(missing) - len(left)} found, {len(left)} still without a photo")
 
     print(f"\nSaved {done} photo(s), kept {skipped} existing, {len(failed)} failed -> {out}")
     for item in failed:

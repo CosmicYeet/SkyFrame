@@ -101,3 +101,33 @@ esp_err_t plane_library_save(const char *icao, const uint16_t *pixels)
     if (rc != ESP_OK) ESP_LOGW(TAG, "Could not save photo for %s", name);
     return rc;
 }
+
+#define MISSING_FILE PLANES_DIR "/missing.txt"
+void plane_library_note_type(const char *type_code, const char *description)
+{
+    char name[12], path[64];
+    if (!safe_name(type_code, 7, name, sizeof(name), true)) return;
+    snprintf(path, sizeof(path), TYPES_DIR "/%s.jpg", name);
+    if (!sf_sd_begin()) return;
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        /* Not on the card: listed already? (a short file, read line by line) */
+        bool listed = false;
+        char line[96];
+        size_t n = strlen(name);
+        FILE *f = fopen(MISSING_FILE, "r");
+        if (f) {
+            while (!listed && fgets(line, sizeof(line), f)) listed = !strncmp(line, name, n) && line[n] == '\t';
+            fclose(f);
+        }
+        if (!listed && (mkdir(PLANES_DIR, 0775) == 0 || errno == EEXIST) && (f = fopen(MISSING_FILE, "a"))) {
+            char desc[48];
+            snprintf(desc, sizeof(desc), "%s", description && strcmp(description, type_code) ? description : "");
+            for (char *c = desc; *c; c++) if (*c == '\t' || *c == '\r' || *c == '\n') *c = ' ';
+            fprintf(f, "%s\t%s\n", name, desc);
+            fclose(f);
+            ESP_LOGI(TAG, "No photo for type %s (%s): listed in missing.txt", name, desc);
+        }
+    }
+    sf_sd_end();
+}

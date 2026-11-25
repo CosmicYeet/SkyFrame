@@ -22,6 +22,8 @@ static TaskHandle_t watchdog_task;
 #define UNPLUG_SUSPEND_MS 2000    /* bus silent this long while exposed = cable pulled */
 #define RETRY_MS 1500             /* a failed hand-back is tried again after this */
 #define RETRIES 3
+#define REJOIN_OFF_MS 400         /* off the bus this long, so the computer sees a replug */
+#define REJOIN_WAIT_MS 5000       /* and this long at most for it to set SkyFrame up again */
 /* Requests to the background task (task notification values). */
 enum { REQ_SUSPENDED = 1, REQ_RESUMED, REQ_TO_USB, REQ_TO_APP };
 static int app_retries;
@@ -117,7 +119,9 @@ static void usb_event(tinyusb_event_t *event, void *arg)
 {
     (void)arg;
     if (event->id == TINYUSB_EVENT_SUSPENDED && watchdog_task) xTaskNotify(watchdog_task, REQ_SUSPENDED, eSetValueWithOverwrite);
-    if (event->id == TINYUSB_EVENT_RESUMED && watchdog_task) xTaskNotify(watchdog_task, REQ_RESUMED, eSetValueWithOverwrite);
+    /* Set up again by the computer (after a rejoin): it's there, like a resume. */
+    if ((event->id == TINYUSB_EVENT_RESUMED || event->id == TINYUSB_EVENT_ATTACHED) && watchdog_task)
+        xTaskNotify(watchdog_task, REQ_RESUMED, eSetValueWithOverwrite);
 }
 /* Give the card back to SkyFrame. A failed mount still leaves the driver's mount point at
    APP, and the driver ignores requests for the mount point it already has; every later
@@ -130,6 +134,23 @@ static void take_back(void)
     if (!app_owned && tinyusb_msc_get_storage_mount_point(storage, &mp) == ESP_OK && mp == TINYUSB_MSC_STORAGE_MOUNT_APP)
         tinyusb_msc_set_storage_mount_point(storage, TINYUSB_MSC_STORAGE_MOUNT_USB);
     tinyusb_msc_set_storage_mount_point(storage, TINYUSB_MSC_STORAGE_MOUNT_APP);
+}
+/* A computer that is already connected doesn't look for a card that appears later: Windows
+   checks when the device arrives. After a handover in either direction, leave the bus
+   briefly and rejoin, so the computer sets SkyFrame up again and sees the card (or, after
+   Done, sees it gone instead of keeping a dead drive). The bus going quiet meanwhile is
+   ours, not a pulled cable: those notifications are dropped. */
+static void rejoin_bus(void)
+{
+    if (!tud_connected()) return;
+    ESP_LOGI(TAG, "Rejoining USB so the computer sees the change");
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(REJOIN_OFF_MS));
+    tud_connect();
+    for (int waited = 0; waited < REJOIN_WAIT_MS && !tud_mounted(); waited += 100) vTaskDelay(pdMS_TO_TICKS(100));
+    if (!tud_mounted()) ESP_LOGW(TAG, "The computer didn't set SkyFrame up again");
+    xTaskNotifyStateClear(NULL);
+    ulTaskNotifyValueClear(NULL, UINT32_MAX);
 }
 /* Every ownership change requested here happens in this task: a handover can wait up to
    HANDOVER_WAIT_MS for file access to finish, which must never stall the display. */
@@ -145,6 +166,7 @@ static void unplug_watchdog(void *arg)
             if (!usb_owned && tud_mounted()) {
                 ESP_LOGI(TAG, "File transfer started from the screen");
                 tinyusb_msc_set_storage_mount_point(storage, TINYUSB_MSC_STORAGE_MOUNT_USB);
+                if (usb_owned) rejoin_bus();
             }
             continue;
         }
@@ -152,7 +174,9 @@ static void unplug_watchdog(void *arg)
             if (app_retries) vTaskDelay(pdMS_TO_TICKS(RETRY_MS));
             if (usb_owned || !app_owned) {
                 ESP_LOGI(TAG, "Returning the microSD card to SkyFrame%s", app_retries ? " (retry)" : "");
+                bool was_usb = usb_owned;
                 take_back();
+                if (was_usb && app_owned) rejoin_bus();   /* the computer drops the drive */
             }
             continue;
         }

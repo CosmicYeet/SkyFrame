@@ -71,7 +71,9 @@ static esp_err_t fetch_locked(const char *url,size_t max_payload,reply_t *reply,
      /* Request line + headers. The default 512 can't hold GitHub's signed redirect address
         (~900 bytes; the update check follows one); allocated only while fetching. */
      .buffer_size_tx=2048,
-     .user_agent="SkyFrame/0.4 (personal noncommercial radar)"};
+     /* Services ask clients to identify themselves with a way to reach the maker (the NWS
+        asks for contact details): the public project page. */
+     .user_agent="SkyFrame/0.5 (personal noncommercial radar; +https://github.com/CosmicYeet/SkyFrame)"};
  esp_http_client_handle_t client=esp_http_client_init(&cfg);
  if(!client){free(reply->body);reply->body=NULL;return ESP_FAIL;}
  esp_err_t rc=esp_http_client_perform(client);

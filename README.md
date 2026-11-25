@@ -190,6 +190,7 @@ Format the card **FAT32**. SkyFrame never formats a card itself.
 /photos/            slideshow photos (.jpg)
 /planes/types/      one typical photo per aircraft type, e.g. B738.jpg
 /planes/saved/      photos of individual planes, saved automatically after their first download
+/planes/missing.txt types SkyFrame saw without a photo (written by SkyFrame)
 /birthdays.txt      family birthdays (see tools/birthdays.example.txt)
 /birthdays/         their photos, e.g. alex.jpg
 ```
@@ -197,7 +198,7 @@ Format the card **FAT32**. SkyFrame never formats a card itself.
 | Content | How |
 |---|---|
 | **Slideshow photos** | Any JPEG up to 4 MB works, but prepared 480×480 photos load instantly: `python tools/prepare_photos.py C:\path\to\photos F:\photos` (needs `pip install pillow`) |
-| **Plane type photos** | About 190 types from Wikipedia: `python tools/prepare_plane_photos.py F:\planes` |
+| **Plane type photos** | About 190 types from Wikipedia: `python tools/prepare_plane_photos.py F:\planes`. SkyFrame lists every type it sees without a photo in `planes/missing.txt`; now and then run `python tools/prepare_plane_photos.py F:\planes --missing` to fetch those too (it searches Wikipedia by the aircraft's description and takes found types off the list) |
 | **Birthdays** | Copy `tools/birthdays.example.txt` to `/birthdays.txt`, one line per person: `Name, YYYY-MM-DD, photo.jpg`, and `owner` on the device owner's line. Square photos in `/birthdays/` look best |
 
 **USB file transfer:** plug the board's native **USB** port (not "UART") into a computer and the card appears as a drive (or tap **USB** in the pull-down panel). SkyFrame shows "USB file transfer" and stays off the card. Eject the drive on the computer, then tap **Done**: SkyFrame takes the card back and picks up the changes.

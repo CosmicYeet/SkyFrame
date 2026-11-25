@@ -322,9 +322,33 @@ static void cycle_screen(void) {
 
 static void count_today(const sf_aircraft_result_t *result);
 static void check_sightings(const sf_aircraft_result_t *result);
+/* Types seen in traffic, each checked once per boot against the card's type photos; the
+   ones without a photo are listed for tools/prepare_plane_photos.py --missing. */
+typedef struct { char type[8]; char desc[40]; } seen_type_t;
+static TaskHandle_t today_photo_task;   /* defined with the Today photo worker */
+#define SEEN_TYPES_MAX 400
+static QueueHandle_t seen_types_q;
+static char (*seen_types)[8];             /* PSRAM */
+static int seen_types_n;
+static void note_types(const sf_aircraft_result_t *r) {
+    if(!seen_types_q || !seen_types) return;
+    for(size_t i=0;i<r->count && seen_types_n<SEEN_TYPES_MAX;i++) {
+        const char *t=r->planes[i].type_code;
+        if(!t[0]) continue;
+        bool known=false;
+        for(int k=0;k<seen_types_n && !known;k++) known=!strcmp(seen_types[k],t);
+        if(known) continue;
+        seen_type_t s;
+        snprintf(s.type,sizeof(s.type),"%s",t);
+        snprintf(s.desc,sizeof(s.desc),"%s",r->planes[i].aircraft_type);
+        if(xQueueSend(seen_types_q,&s,0)!=pdTRUE) break;   /* full: the rest wait for the next update */
+        snprintf(seen_types[seen_types_n++],8,"%s",t);
+    }
+    if(today_photo_task) xTaskNotifyGive(today_photo_task);
+}
 static void apply_aircraft(const sf_aircraft_result_t *result) {
     sf_controller_aircraft(&ctrl,result,now_ms());
-    if(result->api_ok) { count_today(result); check_sightings(result); }
+    if(result->api_ok) { count_today(result); check_sightings(result); note_types(result); }
     ESP_LOGI(TAG,"Aircraft: %u within %u miles, ignored %u",(unsigned)result->count,
              radar_miles(),(unsigned)result->ignored);
 }
@@ -1316,6 +1340,8 @@ static void today_photo_worker(void *arg) {
     bool loaded_photo=false;
     for(;;) {
         ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(5000));
+        seen_type_t seen;
+        while(seen_types_q && xQueueReceive(seen_types_q,&seen,0)==pdTRUE) plane_library_note_type(seen.type,seen.desc);
         char type[8];
         taskENTER_CRITICAL(&today_photo_lock);
         memcpy(type,today_photo_type,sizeof(type));
@@ -1637,6 +1663,8 @@ void app_main(void) {
         /* HTTPS handshakes are seconds of CPU; keep them on CPU1, away from LVGL and Wi-Fi on CPU0. */
         xTaskCreatePinnedToCore(network_task,"skyframe_net",10240,NULL,4,NULL,1);   /* ~4.7 KB used */
         xTaskCreatePinnedToCore(info_task,"skyframe_info",10240,NULL,3,NULL,1);
+        seen_types_q=xQueueCreate(16,sizeof(seen_type_t));
+        seen_types=heap_caps_calloc(SEEN_TYPES_MAX,8,MALLOC_CAP_SPIRAM);
         xTaskCreatePinnedToCore(today_photo_worker,"today_photo",5120,NULL,2,&today_photo_task,1);   /* ~2.2 KB used */
     }
 
