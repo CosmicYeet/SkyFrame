@@ -37,7 +37,11 @@ esp_err_t sf_net_get_weather(double lat, double lon, sf_weather_t *out);
 
 /* Airframe + route details from adsbdb.com for a 6-hex-digit ICAO address.
    ESP_OK with aircraft_found=false means the database does not know this aircraft. */
-esp_err_t sf_net_get_aircraft_info(const char *icao, const char *callsign, sf_aircraft_info_t *info);
+/* The airframe (adsbdb.com) and, from its callsign, the route: adsb.lol's route files first
+   (the leg through `home` for a multi-stop flight, see sf_parse_route; climb > 0 climbing,
+   < 0 descending), adsbdb's route when they have none. */
+esp_err_t sf_net_get_aircraft_info(const char *icao, const char *callsign, const char *home, int climb,
+                                   sf_aircraft_info_t *info);
 
 /* BibleGateway's verse of the day in the NKJV, or the ESV if the NKJV request fails;
    never any other translation. Text is plain ASCII for the display fonts. */

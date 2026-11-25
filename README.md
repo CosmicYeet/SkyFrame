@@ -323,7 +323,8 @@ GitHub shows both as interactive 3D models: open a file to rotate it.
 | Data | Source |
 |---|---|
 | Live traffic | [adsb.fi](https://adsb.fi) open data |
-| Aircraft records and routes | [adsbdb.com](https://www.adsbdb.com) |
+| Aircraft records | [adsbdb.com](https://www.adsbdb.com) |
+| Flight routes | [adsb.lol](https://adsb.lol) route data (every stop of a flight; the leg through BWI is shown), adsbdb.com when it has none |
 | Airframe photos | [airport-data.com](https://www.airport-data.com) |
 | Weather | [Open-Meteo](https://open-meteo.com) |
 | Severe-weather alerts | [National Weather Service](https://www.weather.gov/documentation/services-web-api) (US only) |

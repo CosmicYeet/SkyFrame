@@ -97,7 +97,7 @@ typedef struct {
         sf_pass_t iss;   /* the next visible space station pass (valid=false: none in a day) */
     } data;
 } app_msg_t;
-typedef struct { char icao[9], callsign[12], type_code[8]; } info_req_t;
+typedef struct { char icao[9], callsign[12], type_code[8]; int8_t climb; } info_req_t;   /* climb: +1 up, -1 down, 0 level/unknown */
 /* Keyed on airframe and callsign (the route depends on the flight); 64-bit age never wraps. */
 typedef struct { sf_aircraft_info_t info; char callsign[12]; int64_t fetched_us; } info_cache_entry_t;
 
@@ -342,7 +342,7 @@ static void info_task(void *arg) {
                 esp_timer_get_time()-e->fetched_us<3600000000LL) { *info=e->info; cached=true; break; }
         }
         if (!cached) {
-            esp_err_t rc=sf_wifi_is_connected()?sf_net_get_aircraft_info(req.icao,req.callsign,info):ESP_ERR_INVALID_STATE;
+            esp_err_t rc=sf_wifi_is_connected()?sf_net_get_aircraft_info(req.icao,req.callsign,"BWI",req.climb,info):ESP_ERR_INVALID_STATE;
             if (rc!=ESP_OK) {
                 memset(info,0,sizeof(*info));
                 snprintf(info->icao,sizeof(info->icao),"%s",req.icao);
@@ -381,6 +381,8 @@ static void selected_plane(const skyframe_aircraft_t *a) {
     if (strcasecmp(a->callsign,a->icao) && strcmp(a->callsign,"UNKNOWN"))
         snprintf(req.callsign,sizeof(req.callsign),"%s",a->callsign);
     snprintf(req.type_code,sizeof(req.type_code),"%s",a->type_code);
+    /* climbing or descending: which leg of a multi-stop flight through BWI it is on */
+    req.climb=(int8_t)(a->has_vert_rate&&a->vert_rate_fpm>=300?1:a->has_vert_rate&&a->vert_rate_fpm<=-300?-1:0);
     /* Keep only most recent selection if tapped repeatedly. */
     xQueueOverwrite(info_requests,&req);
 }

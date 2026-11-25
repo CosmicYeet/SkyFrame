@@ -1,4 +1,5 @@
 #include "skyframe_net.h"
+#include "skyframe_routes.h"
 #include "skyframe_urls.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
@@ -197,7 +198,21 @@ static bool alnum_only(const char *s,size_t min,size_t max){
  for(size_t i=0;i<n;i++)if(!isalnum((unsigned char)s[i]))return false;
  return true;
 }
-esp_err_t sf_net_get_aircraft_info(const char *icao,const char *callsign,sf_aircraft_info_t *info){
+/* adsbdb's routes are keyed by flight number alone and are often stale or give a multi-stop
+   flight's end points (a Southwest flight landing at BWI listed as Orlando - New Orleans).
+   adsb.lol's route files list every stop: their leg replaces adsbdb's when there is one. */
+static void route_from_adsblol(const char *callsign,const char *home,int climb,sf_aircraft_info_t *info){
+ char url[96];
+ if(!sf_route_url(url,sizeof(url),callsign))return;
+ reply_t reply;
+ if(fetch_ex(url,8192,&reply,true)!=ESP_OK)return;   /* no file for this callsign: keep adsbdb's */
+ sf_airport_t from,to;
+ if(sf_parse_route(reply.body,reply.used,home,climb,&from,&to)){
+  info->origin=from;info->destination=to;info->route_found=true;
+ }
+ free(reply.body);
+}
+esp_err_t sf_net_get_aircraft_info(const char *icao,const char *callsign,const char *home,int climb,sf_aircraft_info_t *info){
  if(!info||!alnum_only(icao,6,6))return ESP_ERR_INVALID_ARG;
  memset(info,0,sizeof(*info));
  snprintf(info->icao,sizeof(info->icao),"%s",icao);
@@ -206,7 +221,7 @@ esp_err_t sf_net_get_aircraft_info(const char *icao,const char *callsign,sf_airc
  if(alnum_only(callsign,3,8))snprintf(url,sizeof(url),"https://api.adsbdb.com/v0/aircraft/%s?callsign=%s",icao,callsign);
  else snprintf(url,sizeof(url),"https://api.adsbdb.com/v0/aircraft/%s",icao);
  reply_t reply;esp_err_t e=fetch_ex(url,16384,&reply,true);
- if(e==ESP_ERR_NOT_FOUND){info->lookup_ok=true;return ESP_OK;}   /* unknown airframe, not a failure */
+ if(e==ESP_ERR_NOT_FOUND){info->lookup_ok=true;route_from_adsblol(callsign,home,climb,info);return ESP_OK;}   /* unknown airframe, not a failure */
  if(e!=ESP_OK)return e;
  cJSON *root=json_parse(reply.body,reply.used);free(reply.body);
  if(!root)return ESP_ERR_INVALID_RESPONSE;
@@ -231,7 +246,9 @@ esp_err_t sf_net_get_aircraft_info(const char *icao,const char *callsign,sf_airc
   airport(cJSON_GetObjectItemCaseSensitive(fr,"destination"),&info->destination);
   info->route_found=info->origin.code[0]&&info->destination.code[0];
  }
- cJSON_Delete(root);return ESP_OK;
+ cJSON_Delete(root);
+ route_from_adsblol(callsign,home,climb,info);
+ return ESP_OK;
 }
 
 /* Append UTF-8 text as ASCII: curly quotes -> straight, dashes -> '-', ellipsis -> "...",
