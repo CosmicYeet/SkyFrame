@@ -39,6 +39,7 @@
 #include "skyframe_screens.h"
 #include "skyframe_photoplayer.h"
 #include "skyframe_jpeg.h"
+#include "skyframe_urls.h"
 #include "plane_library.h"
 #include "birthdays.h"
 #include "esp_heap_caps.h"
@@ -79,7 +80,8 @@
 #define SIGHTING_SECONDS 20            /* sighting banner on screen */
 #define SIGHTING_REPEAT_MS (6U*3600000U)   /* the same aircraft alerts again after 6 hours */
 
-typedef enum { MSG_TRAFFIC, MSG_WEATHER, MSG_INFO, MSG_PHOTO, MSG_VERSE, MSG_WX_ALERTS, MSG_TODAY_PHOTO } msg_kind_t;
+typedef enum { MSG_TRAFFIC, MSG_WEATHER, MSG_INFO, MSG_PHOTO, MSG_VERSE, MSG_WX_ALERTS, MSG_TODAY_PHOTO,
+               MSG_SATELLITE } msg_kind_t;
 typedef struct {
     msg_kind_t type;
     union {
@@ -117,8 +119,28 @@ static bool send_message(const app_msg_t *msg) {
     return false;
 }
 
+/* Satellite radar: the picture of the area is fetched once per boot, while it's wanted (the
+   pull-down switch or its test). Settings changes restart SkyFrame, so it never goes stale. */
+#define SATELLITE_RETRY_MS 300000U
+static volatile bool sat_wanted, sat_loaded;
+static bool fetch_satellite(app_msg_t *msg) {
+    char url[320];
+    double half=cfg.display_miles*(240.0/204.0);   /* the radar's scale: 204 px per radius */
+    if(!sf_satellite_url(url,sizeof(url),cfg.latitude,cfg.longitude,half,480)) return false;
+    uint8_t *jpeg=NULL; size_t len=0;
+    esp_err_t e=sf_net_get_bytes(url,512*1024,&jpeg,&len);
+    uint16_t *px=NULL;
+    if(e==ESP_OK) { e=sf_jpeg_decode_fit(jpeg,len,&px,480,480,"satellite"); free(jpeg); }
+    if(e!=ESP_OK) { ESP_LOGW(TAG,"Satellite picture unavailable: %s",esp_err_to_name(e)); return false; }
+    memset(msg,0,sizeof(*msg));
+    msg->type=MSG_SATELLITE;
+    msg->data.photo.pixels=px;
+    if(!send_message(msg)) { free(px); return false; }
+    return true;
+}
 static void network_task(void *arg) {
     (void)arg;
+    uint32_t next_satellite=0;
     uint32_t next_air=0, next_weather=0, next_verse=0, next_alerts=0;
     /* One message buffer for the task's lifetime (several KB, PSRAM): the queue copies it,
        so reusing it avoids allocating and freeing on every poll. */
@@ -168,6 +190,11 @@ static void network_task(void *arg) {
             if (rc==ESP_OK) send_message(msg);
             else ESP_LOGW(TAG,"Weather alerts unavailable: %s",esp_err_to_name(rc));
             next_alerts=now_ms()+(rc==ESP_OK?ALERTS_POLL_MS:ALERTS_RETRY_MS);
+        }
+        now=now_ms();
+        if (sat_wanted && !sat_loaded && (int32_t)(now-next_satellite)>=0) {
+            if (fetch_satellite(msg)) sat_loaded=true;
+            next_satellite=now_ms()+SATELLITE_RETRY_MS;
         }
         vTaskDelay(pdMS_TO_TICKS(350));
     }
@@ -273,8 +300,10 @@ static void apply_aircraft(const sf_aircraft_result_t *result) {
              cfg.display_miles,(unsigned)result->ignored);
 }
 
+static void save_utc_offset(int32_t offset);
 static void show_weather(const sf_weather_t *w) {
     last_weather=*w;
+    if(w->valid&&w->has_utc_offset) save_utc_offset(w->utc_offset_s);
     sf_weather_update(w);
 }
 
@@ -503,6 +532,7 @@ static uint32_t test_length_ms(sf_test_action_t a) {
     case SF_TEST_TODAY: return 20000;
     case SF_TEST_OVERHEAD: return 12000;
     case SF_TEST_SPLASH: return 7000;
+    case SF_TEST_SATELLITE: return 30000;
     default: return 0;
     }
 }
@@ -746,6 +776,9 @@ static bool test_tick(uint32_t t, sf_screen_t *forced) {
     case SF_TEST_TODAY:
         sf_test_badge("TEST  \xE2\x80\xA2  sample day");
         *forced=SF_SCREEN_TODAY; return true;
+    case SF_TEST_SATELLITE:
+        sf_test_badge(skyframe_ui_has_satellite_image()?"TEST  \xE2\x80\xA2  satellite radar":"TEST  \xE2\x80\xA2  loading satellite picture");
+        *forced=SF_SCREEN_RADAR; return true;
     case SF_TEST_OVERHEAD:
         sf_test_badge("TEST  \xE2\x80\xA2  overhead now");
         *forced=SF_SCREEN_WEATHER; return true;
@@ -853,11 +886,32 @@ static void setup_banner(uint32_t t) {
 /* ---- Clock and screen brightness -------------------------------------------------
    UTC from internet time (SNTP) plus the local offset Open-Meteo reports for the radar
    center, so daylight saving follows the weather data. */
+/* The offset is also saved, so after a restart the clock shows as soon as internet time
+   is in, without waiting for the weather (or when the weather service is unreachable). */
+#define NVS_UTC_OFFSET "utc_off"
+static int32_t saved_utc_offset;
+static bool have_saved_offset;
+static void load_utc_offset(void) {
+    nvs_handle_t h;
+    if(nvs_open("skyframe",NVS_READONLY,&h)!=ESP_OK) return;
+    have_saved_offset=nvs_get_i32(h,NVS_UTC_OFFSET,&saved_utc_offset)==ESP_OK;
+    nvs_close(h);
+}
+static void save_utc_offset(int32_t offset) {
+    if(have_saved_offset && offset==saved_utc_offset) return;   /* changes twice a year */
+    nvs_handle_t h;
+    if(nvs_open("skyframe",NVS_READWRITE,&h)!=ESP_OK) return;
+    if(nvs_set_i32(h,NVS_UTC_OFFSET,offset)==ESP_OK && nvs_commit(h)==ESP_OK) { saved_utc_offset=offset; have_saved_offset=true; }
+    nvs_close(h);
+}
 static bool local_time(struct tm *out) {
-    if(!last_weather.valid||!last_weather.has_utc_offset) return false;
+    int32_t offset;
+    if(last_weather.valid&&last_weather.has_utc_offset) offset=last_weather.utc_offset_s;
+    else if(have_saved_offset) offset=saved_utc_offset;
+    else return false;
     time_t now=time(NULL);
     if(now<1700000000) return false;            /* not synced yet */
-    now+=last_weather.utc_offset_s;
+    now+=offset;
     gmtime_r(&now,out);
     return true;
 }
@@ -886,6 +940,7 @@ static void quick_refresh(void) {
     sf_quick_state_t q={.brightness=bright_pct,.paused=rotation_paused,.today_available=today&&today->planes&&cfg.today_seconds,
                         .usb_available=sf_sd_usb_host_connected()&&!sf_sd_usb_active(),
                         .transitions=!(cfg.ui_flags&SF_UI_NO_TRANSITIONS),
+                        .satellite=(cfg.ui_flags&SF_UI_SATELLITE)!=0,
                         .screen=ctrl.scheduler.screen,.status=status};
     sf_quick_update(&q);
 }
@@ -919,6 +974,10 @@ static void quick_action(sf_quick_action_t a) {
     case SF_QUICK_TRANSITIONS:   /* the switch: saved at once, no restart needed */
         cfg.ui_flags^=SF_UI_NO_TRANSITIONS;
         if(sf_config_nvs_save(&cfg)!=ESP_OK) ESP_LOGW(TAG,"Couldn't save the page animations setting");
+        break;
+    case SF_QUICK_SATELLITE:     /* the switch: saved at once; the picture loads in the background */
+        cfg.ui_flags^=SF_UI_SATELLITE;
+        if(sf_config_nvs_save(&cfg)!=ESP_OK) ESP_LOGW(TAG,"Couldn't save the satellite radar setting");
         break;
     }
     quick_refresh();
@@ -1472,6 +1531,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(sf_config_nvs_init());
     sf_update_init(sf_planned_restart);   /* rollback bookkeeping and the crash report, first thing */
     sf_update_crash_summary(crash_text,sizeof(crash_text));
+    load_utc_offset();
     if(sf_config_nvs_load(&cfg)!=ESP_OK) {sf_config_defaults(&cfg);setup_mode=true;}
     else setup_mode=!cfg.wifi[0].ssid[0];
 
@@ -1547,6 +1607,7 @@ void app_main(void) {
                 else if(msg->type==MSG_WEATHER)show_weather(&msg->data.weather);
                 else if(msg->type==MSG_INFO)skyframe_ui_update_info(&msg->data.info);
                 else if(msg->type==MSG_WX_ALERTS)take_wx_alerts(&msg->data.alerts);
+                else if(msg->type==MSG_SATELLITE) skyframe_ui_set_satellite_image(msg->data.photo.pixels);
                 else if(msg->type==MSG_TODAY_PHOTO) {
                     /* Still the photo the page wants? (The rarest type may have changed meanwhile.) */
                     uint16_t *px=msg->data.photo.pixels;
@@ -1607,6 +1668,11 @@ void app_main(void) {
         tick_updates(t);
         tick_wx_alerts(t);
         tick_today(t);
+        {   /* satellite radar: the switch, or its test */
+            bool sat=(cfg.ui_flags&SF_UI_SATELLITE) || test_is(SF_TEST_SATELLITE);
+            sat_wanted=sat;
+            skyframe_ui_show_satellite(sat);
+        }
         /* Sighting banners wait while something covers the screens. */
         tick_sightings(t,setup_mode||setup_up||(test_mode&&test_running==TEST_NONE)||sf_sd_usb_active()||test_is(SF_TEST_USB)||
                          test_is(SF_TEST_SIGHTING)||test_is(SF_TEST_OVERHEAD));

@@ -70,7 +70,7 @@ void sf_screens_set_birthday_dismiss_cb(void (*cb)(void));
 typedef enum {
     SF_TEST_OWNER_BIRTHDAY, SF_TEST_FAMILY_BIRTHDAY, SF_TEST_TRAFFIC, SF_TEST_NIGHT,
     SF_TEST_TOUR, SF_TEST_USB, SF_TEST_WIFI, SF_TEST_WX_ALERT, SF_TEST_SIGHTING, SF_TEST_TODAY,
-    SF_TEST_OVERHEAD, SF_TEST_SPLASH, SF_TEST_UPDATE,   /* "Check for updates": not a timed test */
+    SF_TEST_OVERHEAD, SF_TEST_SPLASH, SF_TEST_SATELLITE, SF_TEST_UPDATE,   /* "Check for updates": not a timed test */
     SF_TEST_RESTART, SF_TEST_EXIT, SF_TEST_COUNT,
     SF_TEST_STOP,         /* not a menu item: the badge was tapped, back to the menu */
     SF_TEST_NEXT          /* not a menu item: "Next birthday" during the family birthday test */
@@ -162,13 +162,14 @@ void sf_sighting_show(const sf_sighting_view_t *view);
    shortcuts to the screens, pause the rotation, USB file transfer, settings. Closes on a swipe up, a tap below
    it, or after 20 s untouched. */
 typedef enum { SF_QUICK_RADAR, SF_QUICK_WEATHER, SF_QUICK_PHOTOS, SF_QUICK_TODAY, SF_QUICK_PAUSE,
-               SF_QUICK_SETTINGS, SF_QUICK_USB, SF_QUICK_TRANSITIONS } sf_quick_action_t;
+               SF_QUICK_SETTINGS, SF_QUICK_USB, SF_QUICK_TRANSITIONS, SF_QUICK_SATELLITE } sf_quick_action_t;
 typedef struct {
     int brightness;          /* percent of SkyFrame's automatic level, 10-100 */
     bool paused;
     bool today_available;    /* Today's sky has something to show */
     bool usb_available;      /* a computer is on the USB port: file transfer can start */
     bool transitions;        /* page transition animations on (the switch) */
+    bool satellite;          /* the radar over a satellite picture (the switch) */
     sf_screen_t screen;      /* highlighted shortcut */
     const char *status;      /* "4:52 PM  *  Wi-Fi strong" */
 } sf_quick_state_t;

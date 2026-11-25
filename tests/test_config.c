@@ -73,6 +73,12 @@ int main(void){
  assert(form(&d,"ui=1")&&(d.ui_flags&SF_UI_NO_TRANSITIONS));
  assert(form(&d,"radar=150")&&(d.ui_flags&SF_UI_NO_TRANSITIONS));
  assert(form(&d,"ui=1&transitions=1")&&!(d.ui_flags&SF_UI_NO_TRANSITIONS));
+ /* The satellite radar (pull-down panel) survives a settings-page save, and is a valid flag. */
+ d.ui_flags|=SF_UI_SATELLITE;
+ assert(form(&d,"ui=1")&&(d.ui_flags&SF_UI_SATELLITE)&&(d.ui_flags&SF_UI_NO_TRANSITIONS));
+ assert(form(&d,"ui=1&transitions=1")&&(d.ui_flags&SF_UI_SATELLITE));
+ { sf_config_record_t rec={SF_CONFIG_RECORD_VERSION,d}; sf_config_t back;
+   assert(sf_config_decode(&rec,sizeof(rec),&back)&&(back.ui_flags&SF_UI_SATELLITE)); }
  char t[48];
  assert(sf_config_types_normalize(" b74* ,A388;;c5m ",t,sizeof(t))&&!strcmp(t,"B74*,A388,C5M"));
  assert(!sf_config_types_normalize("A",t,sizeof(t))&&!sf_config_types_normalize("****",t,sizeof(t)));

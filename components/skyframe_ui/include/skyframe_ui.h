@@ -79,3 +79,8 @@ void skyframe_ui_set_frame_clock(uint32_t (*clock)(void));
 void skyframe_ui_set_wifi(int bars);
 /* Radar center coordinates, shown at the bottom of the scope. */
 void skyframe_ui_set_location(double latitude, double longitude);
+/* Satellite view: the scope over a picture of the area (480x480 RGB565, PSRAM, centered on
+   the radar and scaled to it). Takes ownership of `pixels` (NULL drops it). */
+void skyframe_ui_set_satellite_image(uint16_t *pixels);
+bool skyframe_ui_has_satellite_image(void);
+void skyframe_ui_show_satellite(bool on);

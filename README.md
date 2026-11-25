@@ -26,7 +26,7 @@
 <td width="50%" valign="top">
 
 ### 🛩️ Live radar
-Planes within your chosen radius (10 miles by default) at their true bearing and distance, gliding between updates under an animated sweep with an afterglow, drawn at about 30 frames a second. Each icon shows **what the aircraft is** (13 shapes, from Cessnas and helicopters to business jets, fighters and four-engine jumbos), **sized by the aircraft** in 10% steps from light planes to the 747 and A380. Emergencies, VIP flights, military and notable airframes are color-coded. Airborne planes always come first; parked and taxiing ones are small dim dots, with a count next to the BWI marker.
+Planes within your chosen radius (10 miles by default) at their true bearing and distance, gliding between updates under an animated sweep with an afterglow, drawn at about 30 frames a second. Flip on **satellite radar** in the pull-down panel and the scope sits over an aerial photo of the area, scaled to the radar (US only). Each icon shows **what the aircraft is** (13 shapes, from Cessnas and helicopters to business jets, fighters and four-engine jumbos), **sized by the aircraft** in 10% steps from light planes to the 747 and A380. Emergencies, VIP flights, military and notable airframes are color-coded. Airborne planes always come first; parked and taxiing ones are small dim dots, with a count next to the BWI marker.
 
 </td>
 <td width="50%" valign="top">
@@ -143,6 +143,7 @@ Swipe down from the top third of any screen:
 | USB | Hand the microSD card to a connected computer |
 | Settings | The settings screen with its QR codes |
 | Page animations | Turn the screen-change animations on or off |
+| Satellite radar | Show the radar over a satellite picture of the area; remembered |
 
 It closes with a swipe up, a tap below it, or after 20 s untouched.
 
@@ -217,6 +218,7 @@ Hold any screen for 5 s to open settings, then hold the settings screen's backgr
 | USB transfer / Wi-Fi problem | Those screens | 10–15 s |
 | Today's sky | A sample day, with a 747-8F as the rarest aircraft | 20 s |
 | Startup | The startup screen, as at power-on | 7 s |
+| Satellite radar | The radar over the satellite picture, without changing the setting | 30 s |
 | Weather alert | A sample Severe Thunderstorm Warning and Flood Watch; tap or swipe the card | 45 s |
 | Sighting alert | An Air Force One banner over the weather; tap it for the radar | 25 s |
 | Overhead now | A sample "Overhead now" card | 12 s |
@@ -321,6 +323,7 @@ GitHub shows both as interactive 3D models: open a file to rotate it.
 | Airframe photos | [airport-data.com](https://www.airport-data.com) |
 | Weather | [Open-Meteo](https://open-meteo.com) |
 | Severe-weather alerts | [National Weather Service](https://www.weather.gov/documentation/services-web-api) (US only) |
+| Satellite radar picture | [USGS The National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map) imagery, public domain (US only) |
 | Type photos | Wikipedia lead images, hosted on Wikimedia Commons |
 | Verse of the day | [BibleGateway](https://www.biblegateway.com) |
 

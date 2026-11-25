@@ -27,7 +27,8 @@ typedef struct {
     unsigned ui_flags;
 } sf_config_t;
 #define SF_UI_NO_TRANSITIONS 1u   /* screens change instantly instead of animating */
-#define SF_UI_MASK SF_UI_NO_TRANSITIONS
+#define SF_UI_SATELLITE 2u        /* the radar over a satellite picture of the area */
+#define SF_UI_MASK (SF_UI_NO_TRANSITIONS|SF_UI_SATELLITE)
 #define SF_DEFAULT_VERSE_SECONDS 20
 #define SF_DEFAULT_TODAY_SECONDS 20
 #define SF_ALERT_EMERGENCY 1u

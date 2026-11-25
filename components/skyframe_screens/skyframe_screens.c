@@ -1546,6 +1546,7 @@ static void build_test_menu(void){
     test_button(g,SF_TEST_WIFI,LV_SYMBOL_WIFI,"Wi-Fi problem",ACCENT_BLUE,WHITE,false);
     test_button(g,SF_TEST_TODAY,LV_SYMBOL_LIST,"Today's sky",ACCENT_BLUE,WHITE,false);
     test_button(g,SF_TEST_SPLASH,LV_SYMBOL_POWER,"Startup",ACCENT_BLUE,WHITE,false);
+    test_button(g,SF_TEST_SATELLITE,LV_SYMBOL_GPS,"Satellite radar",ACCENT_BLUE,WHITE,true);
 
     section(test_list,"ALERTS",lv_color_hex(0xFF9F43));
     g=list_box(test_list,LV_FLEX_FLOW_ROW_WRAP,10);
@@ -2005,11 +2006,11 @@ void sf_sighting_show(const sf_sighting_view_t *v){
    running). Panel coordinates are screen coordinates once it is down:
    y 34 status, 58-96 brightness, 116-190 screen shortcuts, 204-248 pause and settings,
    276 handle. Built on first use, then kept (hidden). */
-#define QUICK_H 344
+#define QUICK_H 382
 #define QUICK_IDLE_MS 20000
 #define QUICK_GOLD lv_color_hex(0xFFC857)
 static lv_obj_t *quick_back, *quick_panel, *quick_status, *quick_bright_label, *quick_slider;
-static lv_obj_t *quick_btn[4], *quick_pause_btn, *quick_pause_label, *quick_usb_btn, *quick_anim_switch;
+static lv_obj_t *quick_btn[4], *quick_pause_btn, *quick_pause_label, *quick_usb_btn, *quick_anim_switch, *quick_sat_switch;
 static lv_timer_t *quick_timer;
 static void (*on_quick_brightness)(int, bool);
 static void (*on_quick_action)(sf_quick_action_t);
@@ -2048,6 +2049,25 @@ static void quick_clicked(lv_event_t *e){
     }
     if(on_quick_action)on_quick_action(a);
     if(a!=SF_QUICK_PAUSE)sf_quick_close();   /* went somewhere: out of the way */
+}
+static void quick_sat_switched(lv_event_t *e){
+    (void)e;
+    quick_state.satellite=lv_obj_has_state(quick_sat_switch,LV_STATE_CHECKED);
+    if(on_quick_action)on_quick_action(SF_QUICK_SATELLITE);
+}
+static lv_obj_t *quick_switch_row(int y,const char *text,lv_event_cb_t cb){
+    lv_obj_t *row=lv_obj_create(quick_panel);plain_obj(row);
+    lv_obj_set_pos(row,120,y);lv_obj_set_size(row,240,34);
+    lv_obj_t *name=text_label(row,text,WHITE,LV_FONT_DEFAULT);
+    lv_obj_align(name,LV_ALIGN_LEFT_MID,0,0);
+    lv_obj_t *sw=lv_switch_create(row);
+    lv_obj_set_size(sw,52,28);
+    lv_obj_align(sw,LV_ALIGN_RIGHT_MID,0,0);
+    lv_obj_set_style_bg_color(sw,lv_color_hex(0x2A3A55),LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sw,ACCENT_GREEN,LV_PART_INDICATOR|LV_STATE_CHECKED);
+    lv_obj_set_ext_click_area(sw,8);
+    lv_obj_add_event_cb(sw,cb,LV_EVENT_VALUE_CHANGED,NULL);
+    return sw;
 }
 static void quick_switched(lv_event_t *e){
     (void)e;
@@ -2142,21 +2162,12 @@ static void build_quick(void){
     lv_obj_t *set=quick_pill(quick_panel,296,204,100,SF_QUICK_SETTINGS);
     lv_obj_center(text_label(set,LV_SYMBOL_SETTINGS " Settings",WHITE,LV_FONT_DEFAULT));
 
-    /* y 262-296: page animations on/off (also on the settings page). */
-    lv_obj_t *row=lv_obj_create(quick_panel);plain_obj(row);
-    lv_obj_set_pos(row,120,262);lv_obj_set_size(row,240,34);
-    lv_obj_t *name=text_label(row,"Page animations",WHITE,LV_FONT_DEFAULT);
-    lv_obj_align(name,LV_ALIGN_LEFT_MID,0,0);
-    quick_anim_switch=lv_switch_create(row);
-    lv_obj_set_size(quick_anim_switch,52,28);
-    lv_obj_align(quick_anim_switch,LV_ALIGN_RIGHT_MID,0,0);
-    lv_obj_set_style_bg_color(quick_anim_switch,lv_color_hex(0x2A3A55),LV_PART_MAIN);
-    lv_obj_set_style_bg_color(quick_anim_switch,ACCENT_GREEN,LV_PART_INDICATOR|LV_STATE_CHECKED);
-    lv_obj_set_ext_click_area(quick_anim_switch,12);
-    lv_obj_add_event_cb(quick_anim_switch,quick_switched,LV_EVENT_VALUE_CHANGED,NULL);
+    /* y 258-292: page animations (also on the settings page); y 298-332: satellite radar. */
+    quick_anim_switch=quick_switch_row(258,"Page animations",quick_switched);
+    quick_sat_switch=quick_switch_row(298,"Satellite radar",quick_sat_switched);
 
     lv_obj_t *handle=lv_obj_create(quick_panel);plain_obj(handle);
-    lv_obj_set_size(handle,48,5);lv_obj_set_pos(handle,216,322);
+    lv_obj_set_size(handle,48,5);lv_obj_set_pos(handle,216,360);
     lv_obj_set_style_radius(handle,3,0);
     lv_obj_set_style_bg_color(handle,WHITE,0);lv_obj_set_style_bg_opa(handle,LV_OPA_40,0);
 
@@ -2186,13 +2197,18 @@ static void quick_apply(void){
         if(q->transitions)lv_obj_add_state(quick_anim_switch,LV_STATE_CHECKED);
         else lv_obj_clear_state(quick_anim_switch,LV_STATE_CHECKED);
     }
+    if(q->satellite!=lv_obj_has_state(quick_sat_switch,LV_STATE_CHECKED)){
+        if(q->satellite)lv_obj_add_state(quick_sat_switch,LV_STATE_CHECKED);
+        else lv_obj_clear_state(quick_sat_switch,LV_STATE_CHECKED);
+    }
 }
 void sf_quick_update(const sf_quick_state_t *state){
     if(!state)return;
     /* Restyling redraws the panel even with equal values: skip when nothing changed. */
     const sf_quick_state_t *q=&quick_state;
     bool same=q->brightness==state->brightness&&q->paused==state->paused&&q->today_available==state->today_available&&
-              q->usb_available==state->usb_available&&q->transitions==state->transitions&&q->screen==state->screen&&
+              q->usb_available==state->usb_available&&q->transitions==state->transitions&&q->satellite==state->satellite&&
+              q->screen==state->screen&&
               !quick_hint_at&&!strcmp(quick_status_text,state->status?state->status:"");
     if(same)return;
     quick_state=*state;

@@ -9,6 +9,16 @@ bool sf_aircraft_url(char *out,size_t cap,double lat,double lon,double miles){
  int n=snprintf(out,cap,"https://opendata.adsb.fi/api/v3/lat/%.5f/lon/%.5f/dist/%.1f",lat,lon,nautical);
  return n>=0&&(size_t)n<cap;
 }
+bool sf_satellite_url(char *out,size_t cap,double lat,double lon,double half_miles,int size){
+ if(!out||cap==0||!valid(lat,lon)||fabs(lat)>80||!isfinite(half_miles)||half_miles<0.5||half_miles>200||
+    size<16||size>2048)return false;
+ const double R=6378137.0,PI=3.14159265358979323846;   /* Web Mercator (EPSG:3857) */
+ double x=R*lon*PI/180, y=R*log(tan(PI/4+lat*PI/360));
+ double h=half_miles*1609.344/cos(lat*PI/180);          /* Mercator stretches by 1/cos(lat) */
+ int n=snprintf(out,cap,"https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/export"
+   "?bbox=%.0f,%.0f,%.0f,%.0f&bboxSR=3857&imageSR=3857&size=%d,%d&format=jpg&f=image",x-h,y-h,x+h,y+h,size,size);
+ return n>=0&&(size_t)n<cap;
+}
 bool sf_weather_url(char *out,size_t cap,double lat,double lon){
  if(!out||cap==0||!valid(lat,lon))return false;
  int n=snprintf(out,cap,"https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f"

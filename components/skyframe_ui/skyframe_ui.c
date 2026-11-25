@@ -1058,6 +1058,54 @@ static void sweep_run(bool run) {
     else lv_timer_pause(sweep_timer);
 }
 
+/* The scope: rings and crosshair drawn once into a full-screen canvas, over the plain
+   background or (satellite view) a darkened picture of the area. */
+static lv_obj_t *scope;
+static uint16_t *sat_px;          /* 480x480, PSRAM; owned here */
+static bool sat_on;
+static void draw_scope(void) {
+    if (!scope) return;
+    static lv_point_t vertical[] = {{240,36},{240,444}};
+    static lv_point_t horizontal[] = {{36,240},{444,240}};
+    bool sat = sat_on && sat_px;
+    if (sat) {
+        /* Darkened so planes, labels and the sweep stand out; darker still outside the scope. */
+        lv_color_t *buf = (lv_color_t *)lv_canvas_get_img(scope)->data;
+        for (int y = 0; y < SIZE; y++) {
+            int dy = y - CY;
+            for (int x = 0; x < SIZE; x++) {
+                int dx = x - CX;
+                lv_color_t c; c.full = sat_px[y * SIZE + x];
+                buf[y * SIZE + x] = lv_color_mix(c, BG, dx * dx + dy * dy <= RADAR_R * RADAR_R ? 150 : 70);
+            }
+        }
+    } else lv_canvas_fill_bg(scope, BG, LV_OPA_COVER);
+    lv_draw_arc_dsc_t ring;
+    lv_draw_arc_dsc_init(&ring);
+    ring.color = sat ? GREEN : DIM_GREEN;
+    ring.opa = sat ? LV_OPA_50 : LV_OPA_COVER;
+    ring.width = 1;
+    for (int r = 1; r <= 4; r++) lv_canvas_draw_arc(scope, CX, CY, r * 48, 0, 360, &ring);
+    lv_draw_line_dsc_t cross;
+    lv_draw_line_dsc_init(&cross);
+    cross.color = ring.color;
+    cross.opa = ring.opa;
+    cross.width = 1;
+    lv_canvas_draw_line(scope, vertical, 2, &cross);
+    lv_canvas_draw_line(scope, horizontal, 2, &cross);
+    lv_obj_invalidate(scope);
+}
+void skyframe_ui_set_satellite_image(uint16_t *pixels) {
+    free(sat_px);
+    sat_px = pixels;
+    if (sat_on) draw_scope();
+}
+bool skyframe_ui_has_satellite_image(void) { return sat_px != NULL; }
+void skyframe_ui_show_satellite(bool on) {
+    if (on == sat_on) return;
+    sat_on = on;
+    if (sat_px) draw_scope();
+}
 void skyframe_ui_init(lv_obj_t *parent) {
     /* No round mask on full-screen pages: the glass is already round, and a circular
        radius makes every redraw go through a mask and repaint what is underneath. */
@@ -1078,23 +1126,12 @@ void skyframe_ui_init(lv_obj_t *parent) {
     static lv_point_t horizontal[] = {{36,240},{444,240}};
     void *scope_buf = heap_caps_malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR(SIZE, SIZE), MALLOC_CAP_SPIRAM);
     if (scope_buf) {
-        lv_obj_t *scope = lv_canvas_create(root);
+        scope = lv_canvas_create(root);
         lv_obj_clear_flag(scope, LV_OBJ_FLAG_CLICKABLE);
         lv_canvas_set_buffer(scope, scope_buf, SIZE, SIZE, LV_IMG_CF_TRUE_COLOR);
         lv_obj_set_pos(scope, 0, 0);
-        lv_canvas_fill_bg(scope, BG, LV_OPA_COVER);
-        lv_draw_arc_dsc_t ring;
-        lv_draw_arc_dsc_init(&ring);
-        ring.color = DIM_GREEN;
-        ring.width = 1;
-        for (int r = 1; r <= 4; r++) lv_canvas_draw_arc(scope, CX, CY, r * 48, 0, 360, &ring);
-        lv_draw_line_dsc_t cross;
-        lv_draw_line_dsc_init(&cross);
-        cross.color = DIM_GREEN;
-        cross.width = 1;
-        lv_canvas_draw_line(scope, vertical, 2, &cross);
-        lv_canvas_draw_line(scope, horizontal, 2, &cross);
-    } else {
+        draw_scope();
+    } else {   /* no satellite view without the canvas */
         for (int r = 1; r <= 4; r++) {
             lv_obj_t *circle = lv_obj_create(root);
             int dia = r * 96;

@@ -162,11 +162,19 @@ bool sf_restart_was_planned(void){
  return planned;
 }
 static void reboot_after_config(void *ctx){(void)ctx;
-  vTaskDelay(pdMS_TO_TICKS(1500));sf_planned_restart();vTaskDelete(NULL);
+  vTaskDelay(pdMS_TO_TICKS(1500));
+  ESP_LOGI(TAG,"Restarting with the new settings");
+  sf_planned_restart();vTaskDelete(NULL);
 }
 static void saved(const sf_config_t *cfg){(void)cfg;
-  /* Reload a complete settings snapshot on reboot after HTTP response returns. */
-  xTaskCreate(reboot_after_config,"skyframe_restart",2048,NULL,4,NULL);
+  /* Reload a complete settings snapshot on reboot after HTTP response returns. The restart
+     runs Wi-Fi's shutdown and reads the update state: give it room. If the task can't be
+     made (memory), restart from here rather than run on half-applied settings. */
+  if(xTaskCreate(reboot_after_config,"skyframe_restart",4096,NULL,4,NULL)!=pdPASS){
+    ESP_LOGW(TAG,"Couldn't start the restart task: restarting now");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    sf_planned_restart();
+  }
 }
 static void retry(void *arg){(void)arg;if(!connected)attempt();}
 /* Start a new attempt now, e.g. after a Wi-Fi mode change, which cancels an attempt in
