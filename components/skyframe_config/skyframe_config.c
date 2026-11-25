@@ -18,6 +18,27 @@ static bool unescape(char *out,size_t size,const char *in,size_t len){
  out[j]=0;return true;
 }
 static size_t bounded_len(const char *s,size_t cap){size_t n=0;while(n<cap&&s[n])n++;return n;}
+const unsigned sf_radar_preset_miles[SF_RADAR_PRESETS]={1,5,10};
+static const unsigned preset_activation[SF_RADAR_PRESETS]={1,3,5};
+unsigned sf_radar_preset_activation(unsigned miles){
+ for(int i=0;i<SF_RADAR_PRESETS;i++)if(sf_radar_preset_miles[i]==miles)return preset_activation[i];
+ return 0;
+}
+bool sf_config_set_radar_preset(sf_config_t *cfg,unsigned miles){
+ unsigned act=sf_radar_preset_activation(miles);
+ if(!cfg||!act)return false;
+ cfg->display_miles=miles;cfg->activation_miles=act;
+ return true;
+}
+unsigned sf_radar_preset_next(unsigned miles){
+ for(int i=0;i<SF_RADAR_PRESETS;i++)if(sf_radar_preset_miles[i]>miles)return sf_radar_preset_miles[i];
+ return sf_radar_preset_miles[0];
+}
+unsigned sf_config_radar_preset(const sf_config_t *cfg){
+ if(!cfg)return 0;
+ unsigned act=sf_radar_preset_activation(cfg->display_miles);
+ return act&&act==cfg->activation_miles?cfg->display_miles:0;
+}
 void sf_config_defaults(sf_config_t *cfg){
  memset(cfg,0,sizeof(*cfg));cfg->latitude=SF_DEFAULT_LAT;cfg->longitude=SF_DEFAULT_LON;
  cfg->display_miles=10;cfg->activation_miles=5;

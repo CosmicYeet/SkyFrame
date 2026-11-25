@@ -928,7 +928,33 @@ void skyframe_ui_set_airport_ground(unsigned count) {
     airport_ground = count;
     place_airport_text();
 }
+/* The clock lives at the top, the status line at the bottom. An airport marker that sits
+   where the clock is (one a few miles due north) would cover it for good, unlike a passing
+   plane: then the two swap places. */
+#define CLOCK_TOP_Y 56
+#define STATUS_BOTTOM_Y 396
+static void place_clock(void) {
+    if (!clock_label || !status_label) return;
+    bool swap = false;
+    if (airport_x >= 0) {
+        box_t a = {airport_x - AIRPORT_PIN / 2, airport_y - AIRPORT_PIN / 2,
+                   airport_x + AIRPORT_PIN / 2, airport_y + AIRPORT_PIN / 2};
+        box_t t;
+        box_of(airport_text, &t);
+        a.x1 = LV_MIN(a.x1, t.x1); a.y1 = LV_MIN(a.y1, t.y1);
+        a.x2 = LV_MAX(a.x2, t.x2); a.y2 = LV_MAX(a.y2, t.y2);
+        /* the clock's spot ("12:59 PM") with a clear margin: near it reads as cramped too */
+        box_t top = {CX - 75, CLOCK_TOP_Y - 16, CX + 75, CLOCK_TOP_Y + 36};
+        box_t bottom = {CX - 75, STATUS_BOTTOM_Y - 16, CX + 75, STATUS_BOTTOM_Y + 36};
+        swap = overlap_area(&a, &top) > 0 && overlap_area(&a, &bottom) == 0;
+    }
+    lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, swap ? STATUS_BOTTOM_Y : CLOCK_TOP_Y);
+    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, swap ? CLOCK_TOP_Y : STATUS_BOTTOM_Y);
+}
+static float airport_dist = NAN, airport_bearing;   /* kept for a new radius */
+static bool airport_wanted;
 void skyframe_ui_set_airport(float distance_miles, float bearing_deg, bool visible) {
+    airport_dist = distance_miles; airport_bearing = bearing_deg; airport_wanted = visible;
     if (!root || !airport_pin || !airport_text) return;
     visible = visible && isfinite(distance_miles) && isfinite(bearing_deg) &&
               distance_miles > 0.05f && distance_miles <= display_radius;
@@ -936,6 +962,7 @@ void skyframe_ui_set_airport(float distance_miles, float bearing_deg, bool visib
         lv_obj_add_flag(airport_pin, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(airport_text, LV_OBJ_FLAG_HIDDEN);
         airport_x = -1;
+        place_clock();
         return;
     }
     int x, y;
@@ -945,6 +972,8 @@ void skyframe_ui_set_airport(float distance_miles, float bearing_deg, bool visib
     lv_obj_clear_flag(airport_pin, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(airport_text, LV_OBJ_FLAG_HIDDEN);
     place_airport_text();
+    lv_obj_update_layout(airport_text);
+    place_clock();
 }
 
 void skyframe_ui_set_aircraft(const skyframe_aircraft_t *aircraft, uint8_t count) {
@@ -1212,8 +1241,8 @@ void skyframe_ui_init(lv_obj_t *parent) {
         lv_obj_set_style_radius(pills[k], 8, 0);
         lv_obj_clear_flag(pills[k], LV_OBJ_FLAG_CLICKABLE);
     }
-    lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, 56);
-    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 396);
+    lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, CLOCK_TOP_Y);       /* or swapped: place_clock */
+    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, STATUS_BOTTOM_Y);
     /* Across the outer ring, above "S"; the crosshair shows in the gap between them. */
     lv_obj_align(coords_lat, LV_ALIGN_TOP_RIGHT, -(SIZE - CX + 5), 424);
     lv_obj_align(coords_lon, LV_ALIGN_TOP_LEFT, CX + 5, 424);
@@ -1282,6 +1311,7 @@ void skyframe_ui_set_select_cb(void (*cb)(const skyframe_aircraft_t *aircraft)){
 void skyframe_ui_set_radius(float miles){
     if(miles<1.f||miles>100.f)return;
     display_radius=miles;
+    if(isfinite(airport_dist))skyframe_ui_set_airport(airport_dist,airport_bearing,airport_wanted);   /* in or out of range now */
     if(range_label){
         char buf[16];
         snprintf(buf,sizeof(buf),"%.0f mi",miles);

@@ -73,6 +73,19 @@ int main(void){
  assert(form(&d,"ui=1")&&(d.ui_flags&SF_UI_NO_TRANSITIONS));
  assert(form(&d,"radar=150")&&(d.ui_flags&SF_UI_NO_TRANSITIONS));
  assert(form(&d,"ui=1&transitions=1")&&!(d.ui_flags&SF_UI_NO_TRANSITIONS));
+ /* Radar range presets: 1/1, 5/3, 10/5 miles; each a valid setting; anything else is custom. */
+ { sf_config_t p; sf_config_defaults(&p);
+   assert(sf_config_radar_preset(&p)==10);                         /* the defaults are the 10 mi preset */
+   assert(sf_config_set_radar_preset(&p,1)&&p.display_miles==1&&p.activation_miles==1&&sf_config_valid(&p));
+   assert(sf_config_radar_preset(&p)==1);
+   assert(sf_config_set_radar_preset(&p,5)&&p.display_miles==5&&p.activation_miles==3&&sf_config_valid(&p));
+   assert(sf_config_set_radar_preset(&p,10)&&p.display_miles==10&&p.activation_miles==5&&sf_config_valid(&p));
+   assert(!sf_config_set_radar_preset(&p,7)&&p.display_miles==10);  /* not a preset: unchanged */
+   p.activation_miles=4; assert(sf_config_radar_preset(&p)==0);    /* custom (settings page) */
+   p.display_miles=25; p.activation_miles=5; assert(sf_config_radar_preset(&p)==0);
+   /* The button: 1 -> 5 -> 10 -> 1; a custom radius goes to the next preset up. */
+   assert(sf_radar_preset_next(1)==5&&sf_radar_preset_next(5)==10&&sf_radar_preset_next(10)==1);
+   assert(sf_radar_preset_next(3)==5&&sf_radar_preset_next(7)==10&&sf_radar_preset_next(25)==1); }
  /* The satellite radar (pull-down panel) survives a settings-page save, and is a valid flag. */
  d.ui_flags|=SF_UI_SATELLITE;
  assert(form(&d,"ui=1")&&(d.ui_flags&SF_UI_SATELLITE)&&(d.ui_flags&SF_UI_NO_TRANSITIONS));

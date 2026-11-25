@@ -144,6 +144,7 @@ Swipe down from the top third of any screen:
 | Settings | The settings screen with its QR codes |
 | Page animations | Turn the screen-change animations on or off |
 | Satellite radar | Show the radar over a satellite picture of the area; remembered |
+| Radar range | Shows the radar radius; each tap steps 1 → 5 → 10 → 1 mi, saved and applied at once (the radar shows up for planes within 1, 3 and 5 miles). The settings page can still set any radius |
 
 It closes with a swipe up, a tap below it, or after 20 s untouched.
 
@@ -219,6 +220,7 @@ Hold any screen for 5 s to open settings, then hold the settings screen's backgr
 | Today's sky | A sample day, with a 747-8F as the rarest aircraft | 20 s |
 | Startup | The startup screen, as at power-on | 7 s |
 | Satellite radar | The radar over the satellite picture, without changing the setting | 30 s |
+| Radar ranges | The 1, 5 and 10 mile presets, 10 s each, without changing the setting | 30 s |
 | Weather alert | A sample Severe Thunderstorm Warning and Flood Watch; tap or swipe the card | 45 s |
 | Sighting alert | An Air Force One banner over the weather; tap it for the radar | 25 s |
 | Overhead now | A sample "Overhead now" card | 12 s |

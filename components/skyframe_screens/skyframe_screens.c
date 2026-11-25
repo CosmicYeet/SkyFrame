@@ -1546,7 +1546,8 @@ static void build_test_menu(void){
     test_button(g,SF_TEST_WIFI,LV_SYMBOL_WIFI,"Wi-Fi problem",ACCENT_BLUE,WHITE,false);
     test_button(g,SF_TEST_TODAY,LV_SYMBOL_LIST,"Today's sky",ACCENT_BLUE,WHITE,false);
     test_button(g,SF_TEST_SPLASH,LV_SYMBOL_POWER,"Startup",ACCENT_BLUE,WHITE,false);
-    test_button(g,SF_TEST_SATELLITE,LV_SYMBOL_GPS,"Satellite radar",ACCENT_BLUE,WHITE,true);
+    test_button(g,SF_TEST_SATELLITE,LV_SYMBOL_GPS,"Satellite radar",ACCENT_BLUE,WHITE,false);
+    test_button(g,SF_TEST_RANGES,LV_SYMBOL_REFRESH,"Radar ranges",ACCENT_BLUE,WHITE,false);
 
     section(test_list,"ALERTS",lv_color_hex(0xFF9F43));
     g=list_box(test_list,LV_FLEX_FLOW_ROW_WRAP,10);
@@ -2006,11 +2007,12 @@ void sf_sighting_show(const sf_sighting_view_t *v){
    running). Panel coordinates are screen coordinates once it is down:
    y 34 status, 58-96 brightness, 116-190 screen shortcuts, 204-248 pause and settings,
    276 handle. Built on first use, then kept (hidden). */
-#define QUICK_H 382
+#define QUICK_H 420
 #define QUICK_IDLE_MS 20000
 #define QUICK_GOLD lv_color_hex(0xFFC857)
 static lv_obj_t *quick_back, *quick_panel, *quick_status, *quick_bright_label, *quick_slider;
 static lv_obj_t *quick_btn[4], *quick_pause_btn, *quick_pause_label, *quick_usb_btn, *quick_anim_switch, *quick_sat_switch;
+static lv_obj_t *quick_range_btn, *quick_range_label;   /* "10 mi": tap for the next range */
 static lv_timer_t *quick_timer;
 static void (*on_quick_brightness)(int, bool);
 static void (*on_quick_action)(sf_quick_action_t);
@@ -2048,7 +2050,7 @@ static void quick_clicked(lv_event_t *e){
         return;
     }
     if(on_quick_action)on_quick_action(a);
-    if(a!=SF_QUICK_PAUSE)sf_quick_close();   /* went somewhere: out of the way */
+    if(a!=SF_QUICK_PAUSE&&a!=SF_QUICK_RANGE)sf_quick_close();   /* went somewhere: out of the way */
 }
 static void quick_sat_switched(lv_event_t *e){
     (void)e;
@@ -2166,8 +2168,22 @@ static void build_quick(void){
     quick_anim_switch=quick_switch_row(258,"Page animations",quick_switched);
     quick_sat_switch=quick_switch_row(298,"Satellite radar",quick_sat_switched);
 
+    /* y 338-372: radar range; each tap steps 1 -> 5 -> 10 -> 1 mi (the settings page can
+       still set any radius). */
+    lv_obj_t *rl=text_label(quick_panel,"Radar range",WHITE,LV_FONT_DEFAULT);
+    lv_obj_set_pos(rl,120,347);
+    quick_range_btn=quick_pill(quick_panel,282,338,78,SF_QUICK_RANGE);
+    lv_obj_set_height(quick_range_btn,34);lv_obj_set_style_radius(quick_range_btn,17,0);
+    lv_obj_set_style_pad_all(quick_range_btn,0,0);
+    lv_obj_set_style_bg_color(quick_range_btn,ACCENT_GREEN,0);lv_obj_set_style_bg_opa(quick_range_btn,LV_OPA_20,0);
+    lv_obj_set_style_bg_opa(quick_range_btn,LV_OPA_40,LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(quick_range_btn,ACCENT_GREEN,0);lv_obj_set_style_border_width(quick_range_btn,1,0);
+    lv_obj_set_ext_click_area(quick_range_btn,8);
+    quick_range_label=text_label(quick_range_btn,"",WHITE,LV_FONT_DEFAULT);
+    lv_obj_center(quick_range_label);
+
     lv_obj_t *handle=lv_obj_create(quick_panel);plain_obj(handle);
-    lv_obj_set_size(handle,48,5);lv_obj_set_pos(handle,216,360);
+    lv_obj_set_size(handle,48,5);lv_obj_set_pos(handle,216,396);
     lv_obj_set_style_radius(handle,3,0);
     lv_obj_set_style_bg_color(handle,WHITE,0);lv_obj_set_style_bg_opa(handle,LV_OPA_40,0);
 
@@ -2197,6 +2213,10 @@ static void quick_apply(void){
         if(q->transitions)lv_obj_add_state(quick_anim_switch,LV_STATE_CHECKED);
         else lv_obj_clear_state(quick_anim_switch,LV_STATE_CHECKED);
     }
+    {
+        char b[16];snprintf(b,sizeof(b),"%u mi",q->range);
+        set_text(quick_range_label,b);
+    }
     if(q->satellite!=lv_obj_has_state(quick_sat_switch,LV_STATE_CHECKED)){
         if(q->satellite)lv_obj_add_state(quick_sat_switch,LV_STATE_CHECKED);
         else lv_obj_clear_state(quick_sat_switch,LV_STATE_CHECKED);
@@ -2207,7 +2227,7 @@ void sf_quick_update(const sf_quick_state_t *state){
     /* Restyling redraws the panel even with equal values: skip when nothing changed. */
     const sf_quick_state_t *q=&quick_state;
     bool same=q->brightness==state->brightness&&q->paused==state->paused&&q->today_available==state->today_available&&
-              q->usb_available==state->usb_available&&q->transitions==state->transitions&&q->satellite==state->satellite&&
+              q->usb_available==state->usb_available&&q->transitions==state->transitions&&q->satellite==state->satellite&&q->range==state->range&&
               q->screen==state->screen&&
               !quick_hint_at&&!strcmp(quick_status_text,state->status?state->status:"");
     if(same)return;

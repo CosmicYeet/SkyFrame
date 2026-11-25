@@ -45,6 +45,15 @@ bool sf_config_types_normalize(const char *in, char *out, size_t cap);
 #define SF_DEFAULT_NIGHT_END 7
 void sf_config_defaults(sf_config_t *cfg);
 bool sf_config_valid(const sf_config_t *cfg);
+/* Radar range presets (pull-down panel): radar radius -> "show the radar within" radius.
+   1 mi -> 1 mi, 5 mi -> 3 mi, 10 mi -> 5 mi. */
+#define SF_RADAR_PRESETS 3
+extern const unsigned sf_radar_preset_miles[SF_RADAR_PRESETS];
+unsigned sf_radar_preset_activation(unsigned miles);          /* 0: not a preset */
+bool sf_config_set_radar_preset(sf_config_t *cfg, unsigned miles);
+unsigned sf_config_radar_preset(const sf_config_t *cfg);      /* the preset in use, or 0 (custom) */
+/* The pull-down button: the next preset above `miles`, wrapping to the first after the last. */
+unsigned sf_radar_preset_next(unsigned miles);
 /* Number of saved Wi-Fi networks (0 = never set up). */
 int sf_config_network_count(const sf_config_t *cfg);
 /* Slot of a saved network by name, or -1. */

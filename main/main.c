@@ -70,6 +70,7 @@
 #define BRIGHT_NIGHT 8                /* night hours: soft glow, easy on the eyes */
 #define BRIGHT_WAKE 50                /* touched during the night hours */
 #define WAKE_MS 60000U                /* ...stays on until a minute without touches */
+#define RANGE_STEP_MS 10000U            /* test mode radar ranges: per preset */
 #define TOUR_STEP_MS 8000U             /* test mode screen tour: per screen */
 #define VERSE_POLL_MS (3U*3600000U)    /* verse of the day: refresh every 3 hours */
 #define VERSE_RETRY_MS 600000U
@@ -119,13 +120,23 @@ static bool send_message(const app_msg_t *msg) {
     return false;
 }
 
-/* Satellite radar: the picture of the area is fetched once per boot, while it's wanted (the
-   pull-down switch or its test). Settings changes restart SkyFrame, so it never goes stale. */
+/* The radar radius in use: the setting (settings page or a pull-down preset), or the radar
+   range test's preset. A change takes effect at once (apply_radar_range). */
+static volatile unsigned range_test_miles;       /* 0: no test */
+static volatile bool air_refetch;                /* fetch traffic now (the radius changed) */
+static unsigned radar_miles(void) { return range_test_miles?range_test_miles:cfg.display_miles; }
+static unsigned activation_miles(void) {
+    return range_test_miles?sf_radar_preset_activation(range_test_miles):cfg.activation_miles;
+}
+
+/* Satellite radar: the picture of the area at the radar's scale, fetched while it's wanted
+   (the pull-down switch or its test) and again when the radius changes. */
 #define SATELLITE_RETRY_MS 300000U
-static volatile bool sat_wanted, sat_loaded;
-static bool fetch_satellite(app_msg_t *msg) {
+static volatile bool sat_wanted;
+static volatile unsigned sat_loaded_miles;       /* the radius of the picture sent (0: none) */
+static bool fetch_satellite(app_msg_t *msg, unsigned miles) {
     char url[320];
-    double half=cfg.display_miles*(240.0/204.0);   /* the radar's scale: 204 px per radius */
+    double half=miles*(240.0/204.0);              /* the radar's scale: 204 px per radius */
     if(!sf_satellite_url(url,sizeof(url),cfg.latitude,cfg.longitude,half,480)) return false;
     uint8_t *jpeg=NULL; size_t len=0;
     esp_err_t e=sf_net_get_bytes(url,512*1024,&jpeg,&len);
@@ -135,8 +146,24 @@ static bool fetch_satellite(app_msg_t *msg) {
     memset(msg,0,sizeof(*msg));
     msg->type=MSG_SATELLITE;
     msg->data.photo.pixels=px;
+    snprintf(msg->data.photo.icao,sizeof(msg->data.photo.icao),"%u",miles);   /* its scale */
     if(!send_message(msg)) { free(px); return false; }
     return true;
+}
+/* A new radius (pull-down preset, the range test): rescale the radar, set the activation
+   radius, fetch traffic (and the satellite picture) for it now. */
+static void tick_radar_range(void) {
+    static unsigned shown;
+    unsigned miles=radar_miles();
+    if(miles==shown) return;
+    bool first=!shown;
+    shown=miles;
+    if(first) return;                              /* app_main set up the boot values */
+    skyframe_ui_set_radius((float)miles);
+    sf_controller_set_activation(&ctrl,(float)activation_miles());
+    skyframe_ui_set_satellite_image(NULL);         /* the old picture is at the old scale */
+    sat_loaded_miles=0;
+    air_refetch=true;
 }
 static void network_task(void *arg) {
     (void)arg;
@@ -155,10 +182,11 @@ static void network_task(void *arg) {
             continue;
         }
         uint32_t now=now_ms();
+        if (air_refetch) { air_refetch=false; next_air=now; next_satellite=now; }
         if ((int32_t)(now-next_air)>=0) {
             memset(msg,0,sizeof(*msg));
             msg->type=MSG_TRAFFIC;
-            esp_err_t rc=sf_net_get_aircraft(cfg.latitude,cfg.longitude,(float)cfg.display_miles,&msg->data.aircraft);
+            esp_err_t rc=sf_net_get_aircraft(cfg.latitude,cfg.longitude,(float)radar_miles(),&msg->data.aircraft);
             if (rc==ESP_OK) send_message(msg);
             else ESP_LOGW(TAG,"Aircraft request failed: %s",esp_err_to_name(rc));
             next_air=now_ms()+AIRCRAFT_POLL_MS;
@@ -192,8 +220,9 @@ static void network_task(void *arg) {
             next_alerts=now_ms()+(rc==ESP_OK?ALERTS_POLL_MS:ALERTS_RETRY_MS);
         }
         now=now_ms();
-        if (sat_wanted && !sat_loaded && (int32_t)(now-next_satellite)>=0) {
-            if (fetch_satellite(msg)) sat_loaded=true;
+        unsigned miles=radar_miles();
+        if (sat_wanted && sat_loaded_miles!=miles && (int32_t)(now-next_satellite)>=0) {
+            if (fetch_satellite(msg,miles)) sat_loaded_miles=miles;
             next_satellite=now_ms()+SATELLITE_RETRY_MS;
         }
         vTaskDelay(pdMS_TO_TICKS(350));
@@ -297,7 +326,7 @@ static void apply_aircraft(const sf_aircraft_result_t *result) {
     sf_controller_aircraft(&ctrl,result,now_ms());
     if(result->api_ok) { count_today(result); check_sightings(result); }
     ESP_LOGI(TAG,"Aircraft: %u within %u miles, ignored %u",(unsigned)result->count,
-             cfg.display_miles,(unsigned)result->ignored);
+             radar_miles(),(unsigned)result->ignored);
 }
 
 static void save_utc_offset(int32_t offset);
@@ -352,7 +381,7 @@ static int demo_traffic(skyframe_aircraft_t *out, uint32_t t) {
         a->db_flags=d[i].flags;
         a->altitude_ft=d[i].alt;a->vert_rate_fpm=d[i].rate;a->has_vert_rate=true;a->speed_knots=d[i].kt;
         a->bearing_deg=fmodf(i*90.f+(float)(t%600000u)*0.0006f,360.f);   /* slow clockwise circle */
-        a->distance_miles=(float)cfg.display_miles*(0.35f+0.12f*(float)i);
+        a->distance_miles=(float)radar_miles()*(0.35f+0.12f*(float)i);
         a->heading_deg=fmodf(a->bearing_deg+90.f,360.f);
     }
     return n;
@@ -533,6 +562,7 @@ static uint32_t test_length_ms(sf_test_action_t a) {
     case SF_TEST_OVERHEAD: return 12000;
     case SF_TEST_SPLASH: return 7000;
     case SF_TEST_SATELLITE: return 30000;
+    case SF_TEST_RANGES: return 3*RANGE_STEP_MS;
     default: return 0;
     }
 }
@@ -776,6 +806,13 @@ static bool test_tick(uint32_t t, sf_screen_t *forced) {
     case SF_TEST_TODAY:
         sf_test_badge("TEST  \xE2\x80\xA2  sample day");
         *forced=SF_SCREEN_TODAY; return true;
+    case SF_TEST_RANGES: {
+        int i=(int)(elapsed/RANGE_STEP_MS); if(i>2) i=2;
+        range_test_miles=sf_radar_preset_miles[i];
+        char b[48]; snprintf(b,sizeof(b),"TEST  \xE2\x80\xA2  %u mi radar",range_test_miles);
+        sf_test_badge(b);
+        *forced=SF_SCREEN_RADAR; return true;
+    }
     case SF_TEST_SATELLITE:
         sf_test_badge(skyframe_ui_has_satellite_image()?"TEST  \xE2\x80\xA2  satellite radar":"TEST  \xE2\x80\xA2  loading satellite picture");
         *forced=SF_SCREEN_RADAR; return true;
@@ -941,6 +978,7 @@ static void quick_refresh(void) {
                         .usb_available=sf_sd_usb_host_connected()&&!sf_sd_usb_active(),
                         .transitions=!(cfg.ui_flags&SF_UI_NO_TRANSITIONS),
                         .satellite=(cfg.ui_flags&SF_UI_SATELLITE)!=0,
+                        .range=cfg.display_miles,
                         .screen=ctrl.scheduler.screen,.status=status};
     sf_quick_update(&q);
 }
@@ -975,6 +1013,14 @@ static void quick_action(sf_quick_action_t a) {
         cfg.ui_flags^=SF_UI_NO_TRANSITIONS;
         if(sf_config_nvs_save(&cfg)!=ESP_OK) ESP_LOGW(TAG,"Couldn't save the page animations setting");
         break;
+    case SF_QUICK_RANGE: {   /* the next preset; saved, applied by tick_radar_range */
+        unsigned miles=sf_radar_preset_next(cfg.display_miles);
+        if(sf_config_set_radar_preset(&cfg,miles)) {
+            if(sf_config_nvs_save(&cfg)!=ESP_OK) ESP_LOGW(TAG,"Couldn't save the radar range");
+            ESP_LOGI(TAG,"Radar range: %u mi, shows within %u mi",cfg.display_miles,cfg.activation_miles);
+        }
+        break;
+    }
     case SF_QUICK_SATELLITE:     /* the switch: saved at once; the picture loads in the background */
         cfg.ui_flags^=SF_UI_SATELLITE;
         if(sf_config_nvs_save(&cfg)!=ESP_OK) ESP_LOGW(TAG,"Couldn't save the satellite radar setting");
@@ -1607,7 +1653,10 @@ void app_main(void) {
                 else if(msg->type==MSG_WEATHER)show_weather(&msg->data.weather);
                 else if(msg->type==MSG_INFO)skyframe_ui_update_info(&msg->data.info);
                 else if(msg->type==MSG_WX_ALERTS)take_wx_alerts(&msg->data.alerts);
-                else if(msg->type==MSG_SATELLITE) skyframe_ui_set_satellite_image(msg->data.photo.pixels);
+                else if(msg->type==MSG_SATELLITE) {   /* for the radius still in use? */
+                    if((unsigned)atoi(msg->data.photo.icao)==radar_miles()) skyframe_ui_set_satellite_image(msg->data.photo.pixels);
+                    else free(msg->data.photo.pixels);
+                }
                 else if(msg->type==MSG_TODAY_PHOTO) {
                     /* Still the photo the page wants? (The rarest type may have changed meanwhile.) */
                     uint16_t *px=msg->data.photo.pixels;
@@ -1668,6 +1717,8 @@ void app_main(void) {
         tick_updates(t);
         tick_wx_alerts(t);
         tick_today(t);
+        if(!test_is(SF_TEST_RANGES)) range_test_miles=0;
+        tick_radar_range();
         {   /* satellite radar: the switch, or its test */
             bool sat=(cfg.ui_flags&SF_UI_SATELLITE) || test_is(SF_TEST_SATELLITE);
             sat_wanted=sat;
